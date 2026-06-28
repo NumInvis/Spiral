@@ -55,14 +55,14 @@ def _detect_strategy(text: str) -> str:
     return best if scores[best] > 0 else "balanced"
 
 
-def _detect_subject_type(text: str) -> str:
+def _detect_subject_type(text: str) -> Optional[str]:
     text = text.lower()
     scores = {k: 0 for k in _SUBJECT_KEYWORDS}
     for st, keywords in _SUBJECT_KEYWORDS.items():
         for kw in keywords:
             scores[st] += text.count(kw.lower())
     if scores["物理"] == scores["历史"] == 0:
-        return "物理"
+        return None
     return "物理" if scores["物理"] >= scores["历史"] else "历史"
 
 
@@ -125,20 +125,31 @@ def _detect_special_types(text: str) -> bool:
     return bool(re.search(pattern, text))
 
 
-def _detect_province(text: str) -> str:
-    if "湖北" in text or "武汉" in text:
-        return "湖北"
-    return "湖北"
+def _detect_province(text: str) -> Optional[str]:
+    provinces = [
+        "北京", "天津", "上海", "重庆",
+        "河北", "山西", "辽宁", "吉林", "黑龙江",
+        "江苏", "浙江", "安徽", "福建", "江西", "山东",
+        "河南", "湖北", "湖南", "广东", "海南",
+        "四川", "贵州", "云南", "陕西", "甘肃", "青海",
+        "台湾", "内蒙古", "广西", "西藏", "宁夏", "新疆",
+    ]
+    for p in provinces:
+        if p in text:
+            return p
+    return None
 
 
-def _rule_based_parse(text: str, rank: Optional[int] = None) -> ProfileCreate:
+def _rule_based_parse(text: str, rank: Optional[int] = None, province: Optional[str] = None) -> ProfileCreate:
     """Deterministic parser used as fallback / validation."""
     detected_rank = _detect_rank(text, rank)
     score = _detect_score(text)
+    detected_province = _detect_province(text) or province
+    detected_subject = _detect_subject_type(text) or "物理"
     return ProfileCreate(
         name="考生",
-        province=_detect_province(text),
-        subject_type=_detect_subject_type(text),
+        province=detected_province or "湖北",
+        subject_type=detected_subject,
         score=score if score is not None else 0,
         rank=detected_rank,
         preferred_major=_detect_preferred_majors(text),
@@ -149,7 +160,7 @@ def _rule_based_parse(text: str, rank: Optional[int] = None) -> ProfileCreate:
     )
 
 
-def parse_free_text(text: str, rank: Optional[int] = None) -> ProfileCreate:
+def parse_free_text(text: str, rank: Optional[int] = None, province: Optional[str] = None) -> ProfileCreate:
     """
     Parse free-text description + optional rank into a ProfileCreate schema.
     Uses LLM when API key is available; always validates with rule-based fallback.
@@ -159,7 +170,7 @@ def parse_free_text(text: str, rank: Optional[int] = None) -> ProfileCreate:
     if not text:
         raise ValueError("描述不能为空。")
 
-    fallback = _rule_based_parse(text, rank)
+    fallback = _rule_based_parse(text, rank, province=province)
 
     if not os.environ.get("WINCODE_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
         return fallback

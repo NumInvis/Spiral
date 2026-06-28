@@ -3,8 +3,6 @@ import Header from './components/Header'
 import Footer from './components/Footer'
 import HomePage from './pages/HomePage'
 import RecommendPage from './pages/RecommendPage'
-import DataPage from './pages/DataPage'
-import ReportPage from './pages/ReportPage'
 
 function App() {
   return (
@@ -14,8 +12,6 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/recommend" element={<RecommendPage />} />
-          <Route path="/data" element={<DataPage />} />
-          <Route path="/report" element={<ReportPage />} />
         </Routes>
       </main>
       <Footer />

@@ -21,9 +21,9 @@ os.makedirs(TEMPLATE_DIR, exist_ok=True)
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 
-def _build_report_data(text: str, rank: Optional[int], db: Session, with_summary: bool = True):
+def _build_report_data(text: str, rank: Optional[int], db: Session, with_summary: bool = True, province: Optional[str] = None):
     """Shared pipeline: parse -> recommend -> explain -> optional LLM summary."""
-    profile_data = parse_free_text(text, rank)
+    profile_data = parse_free_text(text, rank, province=province)
     profile = Profile(**profile_data.model_dump())
     db.add(profile)
     db.commit()
@@ -51,6 +51,7 @@ def recommend_from_text(payload: dict, db: Session = Depends(get_db)):
     """
     text = payload.get("text", "").strip()
     rank = payload.get("rank")
+    province = payload.get("province", "").strip() or None
     if not text:
         raise HTTPException(status_code=400, detail="描述文本不能为空")
     try:
@@ -59,7 +60,7 @@ def recommend_from_text(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="rank 必须是整数")
 
     try:
-        profile, profile_data, result, explanations, summary = _build_report_data(text, rank, db, with_summary=False)
+        profile, profile_data, result, explanations, summary = _build_report_data(text, rank, db, with_summary=False, province=province)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -73,6 +74,7 @@ def report_from_text(request: Request, payload: dict, db: Session = Depends(get_
     """
     text = payload.get("text", "").strip()
     rank = payload.get("rank")
+    province = payload.get("province", "").strip() or None
     if not text:
         raise HTTPException(status_code=400, detail="描述文本不能为空")
     try:
@@ -81,7 +83,7 @@ def report_from_text(request: Request, payload: dict, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="rank 必须是整数")
 
     try:
-        profile, profile_data, result, explanations, summary = _build_report_data(text, rank, db)
+        profile, profile_data, result, explanations, summary = _build_report_data(text, rank, db, province=province)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

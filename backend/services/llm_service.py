@@ -64,7 +64,7 @@ def parse_profile_with_llm(text: str, rank: Optional[int] = None) -> Dict:
     system_prompt = (
         "你是 Spiral 高考志愿填报系统的画像解析专家。请从用户的自然语言描述中提取结构化信息，"
         "输出严格的 JSON 对象，不要任何解释。JSON 字段如下：\n"
-        "- province: 省份，默认\"湖北\"\n"
+        "- province: 省份，未说明则默认\"湖北\"\n"
         "- subject_type: \"物理\" 或 \"历史\"\n"
         "- score: 高考分数整数，无法提取填 0\n"
         "- rank: 全省位次整数\n"

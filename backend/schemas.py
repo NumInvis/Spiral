@@ -96,6 +96,7 @@ class RecommendationItem(BaseModel):
     city: Optional[str]
     group_code: Optional[str]
     majors: List[dict]
+    year_breakdown: List[dict]
     reason: str
     risk_notes: List[str]
     data_confidence: str

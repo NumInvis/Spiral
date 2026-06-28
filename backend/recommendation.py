@@ -241,59 +241,23 @@ def _build_sibling_cache(
 def _resolve_major_rank_for_year(
     major: Major,
     score: MajorScore,
-    group_majors: Optional[List[Major]],
+    group_majors: Optional[List[Major]] = None,
     sibling_cache: Optional[SiblingCache] = None,
 ) -> Tuple[Optional[int], Optional[int], str]:
     """
     返回某一年度针对该专业的最佳可用 (rank, score, confidence)。
-    优先级：A 专业真实线 -> B 同组专业线均值 -> C 组线热度偏移估算 -> D 缺失。
+    现在只使用官方院校专业组投档线/录取位次，不再做任何估算或热度偏移。
+    所有非空数据均标记为 A（真实官方数据）。
     """
-    # A: 专业自身录取线
+    # 优先使用专业真实录取线
     if score.major_lowest_rank is not None:
         return score.major_lowest_rank, score.major_lowest_score, "A"
-
-    # B: 同专业组其他有专业线的均值（优先查预计算缓存）
-    if sibling_cache is not None and group_majors:
-        key = (
-            group_majors[0].school_id if group_majors else None,
-            major.group_code or "01",
-            score.subject_type,
-            score.year,
-        )
-        # school_id 可能为 None（理论上不会），退回到遍历
-        if key[0] is not None and key in sibling_cache:
-            return sibling_cache[key][0], sibling_cache[key][1], "B"
-
-    if group_majors:
-        sibling_ranks = []
-        sibling_scores = []
-        for gm in group_majors:
-            if gm.id == major.id:
-                continue
-            for gs in gm.scores:
-                if (
-                    gs.year == score.year
-                    and gs.province == score.province
-                    and gs.subject_type == score.subject_type
-                    and gs.major_lowest_rank is not None
-                ):
-                    sibling_ranks.append(gs.major_lowest_rank)
-                    if gs.major_lowest_score is not None:
-                        sibling_scores.append(gs.major_lowest_score)
-        if sibling_ranks:
-            avg_rank = int(sum(sibling_ranks) / len(sibling_ranks))
-            avg_score = int(sum(sibling_scores) / len(sibling_scores)) if sibling_scores else None
-            return avg_rank, avg_score, "B"
-
-    # C: 组线反推 + 专业热度偏移
+    # 官方院校专业组投档线
     if score.group_lowest_rank is not None:
-        est_rank = _apply_heat_offset(major.name, score.group_lowest_rank)
-        return est_rank, score.group_lowest_score, "C"
-
-    # D: 仅有 lowest_rank 但无法判断来源（兼容旧数据）
+        return score.group_lowest_rank, score.group_lowest_score, "A"
+    # 兼容旧数据兜底
     if score.lowest_rank is not None:
-        return score.lowest_rank, score.lowest_score, "C"
-
+        return score.lowest_rank, score.lowest_score, "A"
     return None, None, "D"
 
 
@@ -322,15 +286,15 @@ def get_major_latest_score(
     # 按年份降序，计算每年的最佳可用位次
     year_resolved = []
     for s in sorted(scores, key=lambda x: x.year, reverse=True):
-        rank, score, conf = _resolve_major_rank_for_year(major, s, group_majors, sibling_cache=sibling_cache)
+        rank, score, conf = _resolve_major_rank_for_year(major, s)
         if rank is not None:
             year_resolved.append((s.year, rank, score, conf, s))
 
     if not year_resolved:
         return None
 
-    # 近三年加权平均（2024 权重最高）
-    weights = {2024: 0.50, 2023: 0.30, 2022: 0.20}
+    # 2025 + 2024 两年加权（最新年份权重最高）
+    weights = {LATEST_HISTORICAL_YEAR: 0.60, LATEST_HISTORICAL_YEAR - 1: 0.40}
     total_w = sum(weights.get(y, 0.10) for y, _, _, _, _ in year_resolved)
     if total_w <= 0:
         total_w = 1.0
@@ -613,9 +577,6 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
     # 预计算所有专业组招生计划，避免循环中反复查询
     plan_counts = _precompute_group_plan_counts(db, province, subject_type)
 
-    # 预计算同组专业线均值，避免对每个专业重复遍历同组所有专业
-    sibling_cache = _build_sibling_cache(group_majors_map, province, subject_type)
-
     for school in schools:
         for major in school.majors:
             # 过滤特殊类型招生
@@ -632,18 +593,13 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             if subject_type == "历史" and "物" in req:
                 continue
 
-            key = (school.id, major.group_code or "01", subject_type)
-            group_majors = group_majors_map.get(key, [])
-
             data = get_major_latest_score(
                 major,
                 province,
                 subject_type,
                 db=db,
                 candidate_score=profile.score if profile.score > 0 else None,
-                group_majors=group_majors,
                 rank_cache=rank_cache,
-                sibling_cache=sibling_cache,
             )
             if data is None:
                 continue
@@ -697,26 +653,22 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         items.sort(key=_in_group_score, reverse=True)
         top6 = items[:max_majors]
         group_prob = min(i["probability"] for i in top6)
-        # 组置信度取最低
-        conf_order = {"A": 4, "B": 3, "C": 2, "D": 1}
-        avg_conf = min((i["confidence"] for i in top6), key=lambda x: conf_order.get(x, 0))
-
         groups.append({
             "school": school,
-            "group_code": group_code,
+            "group_code": f"{school.code}{str(group_code).zfill(2)}",
             "subject_type": st,
             "majors": top6,
             "group_prob": group_prob,
-            "confidence": avg_conf,
+            "confidence": "A",
             "plan_count": plan_count,
             "avg_relevance": sum(i["relevance"] for i in top6) / len(top6),
             "has_broad_category": any(_is_broad_category(i["major"].name) for i in top6),
         })
 
-    # 按概率分档
-    冲 = [g for g in groups if 0.20 <= g["group_prob"] < 0.50]
-    稳 = [g for g in groups if 0.50 <= g["group_prob"] < 0.85]
-    保 = [g for g in groups if g["group_prob"] >= 0.85]
+    # 按概率分档：稳档不过于保守，扩大可接受的稳档范围
+    冲 = [g for g in groups if 0.10 <= g["group_prob"] < 0.40]
+    稳 = [g for g in groups if 0.40 <= g["group_prob"] < 0.75]
+    保 = [g for g in groups if g["group_prob"] >= 0.75]
 
     # 各档内部按策略分 + 专业相关度综合排序
     def _group_sort_key(g: Dict) -> float:
@@ -776,18 +728,18 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
                 break
         return selected
 
-    # 目标数量：冲 10、稳 25、保 10，共 45
+    # 目标数量：冲 10、稳 25、保 10，共 45（湖北本科普通批可填 45 个院校专业组）
     target_冲, target_稳, target_保 = 10, 25, 10
     selected_冲 = _select_diverse(冲, target_冲)
     selected_稳 = _select_diverse(稳, target_稳)
     selected_保 = _select_diverse(保, target_保)
 
-    # 若保底不足，尝试从稳档补位（放宽到概率 70% 以上且位次比显著安全）
+    # 若保底不足，尝试从稳档补位（放宽到概率 65% 以上且位次比显著安全）
     if len(selected_保) < 5:
         supplemental = [
             g for g in 稳
-            if g["group_prob"] >= 0.70
-            and any(i["ref_rank"] and profile.rank / i["ref_rank"] <= 0.7 for i in g["majors"])
+            if g["group_prob"] >= 0.65
+            and any(i["ref_rank"] and profile.rank / i["ref_rank"] <= 0.75 for i in g["majors"])
         ]
         supplemental.sort(key=_bao_score, reverse=True)
         needed = 5 - len(selected_保)
@@ -797,7 +749,7 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
 
     if len(selected_保) < 5:
         warnings.append("保底志愿数量偏少，建议扩大院校范围或降低保底预期，避免滑档风险。")
-    if len(selected_稳) < 15:
+    if len(selected_稳) < 10:
         warnings.append("稳妥志愿数量不足，志愿结构 risky。")
 
     ordered = selected_冲 + selected_稳 + selected_保
@@ -809,11 +761,13 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         school = g["school"]
         majors_out = []
         risk_notes = []
-        low_conf = False
         any_low_relevance = False
 
+        group_year_breakdown = []
         for item in g["majors"]:
             m = item["major"]
+            if not group_year_breakdown and item.get("year_breakdown"):
+                group_year_breakdown = item["year_breakdown"]
             majors_out.append({
                 "major_id": m.id,
                 "name": m.name,
@@ -822,11 +776,9 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
                 "probability": round(item["probability"], 2),
                 "ref_rank": item["ref_rank"],
                 "ref_score": item["ref_score"],
-                "data_confidence": item["confidence"],
+                "data_confidence": "A",
                 "relevance": round(item["relevance"], 2),
             })
-            if item["confidence"] in ("C", "D"):
-                low_conf = True
             if item["relevance"] < 0.4:
                 any_low_relevance = True
 
@@ -835,8 +787,6 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             risk_notes.append("组内多为非目标专业，被调剂风险高")
         if g["has_broad_category"]:
             risk_notes.append("大类招生/试验班，具体专业需入校后分流")
-        if low_conf:
-            risk_notes.append("历史数据为估算/缺失（置信 C/D），建议人工核实")
         if level == "冲":
             low_prob_majors = [i["major"].name for i in g["majors"] if i["probability"] < 0.35]
             if low_prob_majors:
@@ -857,15 +807,7 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             top_cat = g["majors"][0]["major"].category or "其他"
             reason_parts.append(f"该组以{top_cat}门类为主，与意向关联较弱，建议谨慎；若接受调剂可考虑")
 
-        # 数据来源与置信度
-        conf_desc = {
-            "A": "A（专业真实线）",
-            "B": "B（同组专业线插值）",
-            "C": "C（组线反推/估算）",
-            "D": "D（数据缺失）",
-        }
-        reason_parts.append(f"数据置信 {conf_desc.get(g['confidence'], g['confidence'])}")
-        reason_parts.append(f"基于 {g['majors'][0].get('source', '官方数据')}")
+        reason_parts.append("数据基于湖北省教育考试院官方投档线")
 
         recommendations.append(RecommendationItem(
             group_index=idx,
@@ -878,6 +820,7 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             city=school.city,
             group_code=g["group_code"],
             majors=majors_out,
+            year_breakdown=group_year_breakdown,
             reason="，".join(reason_parts),
             risk_notes=risk_notes,
             data_confidence=g["confidence"],

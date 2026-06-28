@@ -1,7 +1,7 @@
 import os
 import re
 from typing import List, Dict, Optional
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 from config.province_rules import LATEST_HISTORICAL_YEAR
 

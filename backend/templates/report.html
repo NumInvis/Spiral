@@ -532,17 +532,17 @@
         <div class="stat-box stat-chong">
           <div class="stat-number">{{ result.冲_count }}</div>
           <div class="stat-label">冲</div>
-          <div class="stat-hint">概率 20%–50%</div>
+          <div class="stat-hint">概率 10%–40%</div>
         </div>
         <div class="stat-box stat-wen">
           <div class="stat-number">{{ result.稳_count }}</div>
           <div class="stat-label">稳</div>
-          <div class="stat-hint">概率 50%–85%</div>
+          <div class="stat-hint">概率 40%–75%</div>
         </div>
         <div class="stat-box stat-bao">
           <div class="stat-number">{{ result.保_count }}</div>
           <div class="stat-label">保</div>
-          <div class="stat-hint">概率 85%+</div>
+          <div class="stat-hint">概率 75%+</div>
         </div>
       </div>
 
@@ -595,9 +595,10 @@
               <th>序号</th>
               <th>档位</th>
               <th>院校</th>
-              <th>专业组</th>
+              <th>专业组代码</th>
+              <th>2024 最低位次</th>
+              <th>2025 最低位次</th>
               <th>录取概率</th>
-              <th>数据置信</th>
               <th>详情</th>
             </tr>
           </thead>
@@ -613,16 +614,21 @@
                 <div class="school-meta">{{ item.school_code }} · {{ item.city or '—' }}</div>
               </td>
               <td class="mono">{{ item.group_code }}</td>
-              <td class="probability">{{ (item.probability * 100) | int }}%</td>
-              <td>
-                <span class="badge badge-conf-{{ item.data_confidence | lower }}">{{ item.data_confidence }}</span>
+              <td class="mono">
+                {% set r2024 = item.year_breakdown | selectattr('year','equalto',2024) | map(attribute='rank') | first %}
+                {{ "{:,}".format(r2024) if r2024 else '—' }}
               </td>
+              <td class="mono">
+                {% set r2025 = item.year_breakdown | selectattr('year','equalto',2025) | map(attribute='rank') | first %}
+                {{ "{:,}".format(r2025) if r2025 else '—' }}
+              </td>
+              <td class="probability">{{ (item.probability * 100) | int }}%</td>
               <td style="font-size:12px;">
                 <div style="max-width:260px;">{{ item.reason }}</div>
               </td>
             </tr>
             <tr class="detail-row">
-              <td colspan="7">
+              <td colspan="8">
                 {% if item.risk_notes %}
                 <div class="risk-box" style="margin-bottom:12px;">
                   <strong>风险提示：</strong>{{ item.risk_notes | join('；') }}
@@ -632,26 +638,14 @@
                   <thead>
                     <tr>
                       <th>专业</th>
-                      <th>门类</th>
-                      <th>学科评估</th>
-                      <th>往年最低位次</th>
-                      <th>往年最低分</th>
-                      <th>概率</th>
                       <th>相关度</th>
-                      <th>置信</th>
                     </tr>
                   </thead>
                   <tbody>
                     {% for m in item.majors %}
                     <tr>
                       <td style="font-weight:600;">{{ m.name }}</td>
-                      <td>{{ m.category or '—' }}</td>
-                      <td>{{ m.discipline_eval or '—' }}</td>
-                      <td class="mono">{{ "{:,}".format(m.ref_rank) if m.ref_rank else '—' }}</td>
-                      <td class="mono">{{ m.ref_score or '—' }}</td>
-                      <td class="mono" style="font-weight:700;">{{ (m.probability * 100) | int }}%</td>
-                      <td class="mono" style="font-weight:700;">{{ (m.relevance * 100) | int if m.relevance is defined else '—' }}</td>
-                      <td><span class="badge badge-conf-{{ m.data_confidence | lower }}">{{ m.data_confidence }}</span></td>
+                      <td class="mono" style="font-weight:700;">{{ (m.relevance * 100) | int if m.relevance is defined else '—' }}%</td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -682,8 +676,8 @@
           <p>基于位次差距、招生计划、数据置信度估算录取概率，强制约束保底志愿数量，避免激进推荐。</p>
         </li>
         <li>
-          <h4>数据置信分级</h4>
-          <p>A/B/C/D 四级置信标签：A 为专业真实录取线；B 为同组专业线插值估算；C 为组线反推或历史遗留数据；D 为缺失。缺失/估算数据明确标注，重要结论要求人工二次核实。</p>
+          <h4>官方数据源</h4>
+          <p>2024 年数据来自开源整理的湖北省本科普通批投档/录取数据；2025 年数据直接从湖北省教育考试院官方 PDF 投档线表与一分一段表提取并换算为位次，不做任何估算。</p>
         </li>
         <li>
           <h4>专业相关度与特殊类型过滤</h4>
@@ -707,7 +701,7 @@
         <div style="font-size:12px;color:var(--muted);margin-top:4px;">Project Spiral · 高考志愿填报 Agent</div>
       </div>
       <div class="footer-disclaimer">
-        本报告由 Spiral 系统自动生成，仅供志愿填报参考。最终填报方案请以各省招生考试机构官方信息为准。报告中标注 C/D 级置信度的数据建议人工二次核实。
+        本报告由 Spiral 系统自动生成，基于官方投档线数据换算，仅供志愿填报参考。最终填报方案请以湖北省招生数智综合平台及目标院校招生网官方信息为准。
       </div>
     </footer>
   </div>

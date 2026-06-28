@@ -245,6 +245,49 @@ def import_ranking_json(
     return {"province": province, "subject_type": subject_type, "year": year, "rows": inserted}
 
 
+def import_ranking_csv(
+    db: Session,
+    csv_path: str,
+    province: str,
+    subject_type: str,
+    year: int,
+    source: Optional[str] = None,
+) -> dict:
+    """导入一分一段表 CSV（官方 PDF 提取格式：科类,分数,人数,累计人数）。"""
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Ranking CSV not found: {csv_path}")
+
+    df = pd.read_csv(csv_path, encoding="utf-8-sig", dtype=str)
+    # 过滤出对应科类
+    rows = df[df["科类"] == subject_type]
+
+    db.query(RankTable).filter(
+        RankTable.province == province,
+        RankTable.subject_type == subject_type,
+        RankTable.year == year,
+    ).delete(synchronize_session=False)
+
+    inserted = 0
+    for _, r in rows.iterrows():
+        score = _parse_int(r.get("分数"))
+        num = _parse_int(r.get("人数"), 0)
+        acc = _parse_int(r.get("累计人数"))
+        if score is None or acc is None:
+            continue
+        db.add(RankTable(
+            province=province,
+            subject_type=subject_type,
+            year=year,
+            score=score,
+            num=num,
+            accumulate=acc,
+            source=source or f"{province}{year}年官方一分一段表",
+        ))
+        inserted += 1
+    db.commit()
+    return {"province": province, "subject_type": subject_type, "year": year, "rows": inserted}
+
+
 def score_to_rank(
     db: Session,
     province: str,
@@ -397,48 +440,30 @@ def import_hubei_csv(
         else:
             major = major_cache[cache_key]
 
-        # 投档数据：优先专业线，其次组线；分别存入对应字段以便推荐引擎做插值
-        # 列约定（raw_hubei_2024.csv）：
-        #   最低分/最低位次 -> 2024 专业线；专业组最低分/专业组最低位次 -> 2024 组线
-        #   最低分.1/最低位次.1 -> 2023 专业线；专业组最低分.1/专业组最低位次.1 -> 2023 组线
-        #   最低分.2/最低位次.2 -> 2022 专业线（无组线）
+        # 投档数据：只使用官方院校专业组投档线（组线），不展示/不依赖专业线估算。
+        # 2024 来自开源整理的官方投档数据；2025 来自湖北省教育考试院官方 PDF + 一分一段表换算。
         score_spec = [
-            (2024, "最低分", "最低位次", "专业组最低分", "专业组最低位次"),
-            (2023, "最低分.1", "最低位次.1", "专业组最低分.1", "专业组最低位次.1"),
-            (2022, "最低分.2", "最低位次.2", None, None),
+            (2024, "专业组最低分", "专业组最低位次"),
+            (2025, "专业组最低分_2025", "专业组最低位次_2025"),
         ]
-        for year, major_score_col, major_rank_col, group_score_col, group_rank_col in score_spec:
-            major_s = _parse_int(row.get(major_score_col))
-            major_r = _parse_int(row.get(major_rank_col))
-            group_s = _parse_int(row.get(group_score_col)) if group_score_col else None
-            group_r = _parse_int(row.get(group_rank_col)) if group_rank_col else None
+        for year, group_score_col, group_rank_col in score_spec:
+            group_s = _parse_int(row.get(group_score_col))
+            group_r = _parse_int(row.get(group_rank_col))
 
-            if major_s is None and major_r is None and group_s is None and group_r is None:
+            if group_s is None and group_r is None:
                 continue
-
-            # 专业线可用时置信 A，仅组线时置信 C
-            if major_r is not None:
-                confidence = "A"
-                best_rank = major_r
-                best_score = major_s
-            elif group_r is not None:
-                confidence = "C"
-                best_rank = group_r
-                best_score = group_s
-            else:
-                confidence = "D"
-                best_rank = major_r or group_r
-                best_score = major_s or group_s
 
             db.add(MajorScore(
                 major_id=major.id,
                 province="湖北",
                 subject_type=subject_type,
                 year=year,
-                lowest_score=best_score,
-                lowest_rank=best_rank,
-                data_confidence=confidence,
-                data_source=f"湖北{year}年本科普通批投档/录取数据（开源整理）",
+                lowest_score=group_s,
+                lowest_rank=group_r,
+                group_lowest_score=group_s,
+                group_lowest_rank=group_r,
+                data_confidence="A",
+                data_source=f"湖北{year}年本科普通批官方院校专业组投档线" if year == 2025 else f"湖北{year}年本科普通批投档/录取数据",
             ))
             stats[f"scores_{year}"] = stats.get(f"scores_{year}", 0) + 1
 

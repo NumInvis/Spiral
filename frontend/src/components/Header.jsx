@@ -1,13 +1,11 @@
 import { Link, useLocation } from 'react-router-dom'
-import { GraduationCap, BookOpen, BarChart3, FileText } from 'lucide-react'
+import { GraduationCap, BarChart3 } from 'lucide-react'
 
 export default function Header() {
   const location = useLocation()
   const nav = [
     { path: '/', label: '首页', icon: GraduationCap },
     { path: '/recommend', label: '智能填报', icon: BarChart3 },
-    { path: '/data', label: '院校数据', icon: BookOpen },
-    { path: '/report', label: '生成报告', icon: FileText },
   ]
 
   return (
