@@ -9,13 +9,14 @@ class Profile(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=True)
-    province = Column(String(50), nullable=False, default="湖北")
+    province = Column(String(50), nullable=False)
     subject_type = Column(String(20), nullable=False)  # 物理 / 历史
     score = Column(Integer, nullable=False)
     rank = Column(Integer, nullable=False)
     preferred_major = Column(String(200), nullable=True)
     preferred_city = Column(String(200), nullable=True)
-    strategy = Column(String(50), nullable=False, default="balanced")
+    strategy = Column(String(50), nullable=True, default=None)
+    risk_preference = Column(String(20), nullable=True, default="balanced")
     accept_adjustment = Column(Boolean, default=True)
     allow_special_types = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -78,6 +79,8 @@ class MajorScore(Base):
     # 专业组投档线（组线），用于缺失专业线时估算
     group_lowest_score = Column(Integer, nullable=True)
     group_lowest_rank = Column(Integer, nullable=True)
+    # 该条投档数据对应的院校专业组代码（不同年份组代码可能变化）
+    group_code = Column(String(50), nullable=True, index=True)
     data_confidence = Column(String(10), default="A")  # A/B/C/D
     data_source = Column(String(200), nullable=True)
 

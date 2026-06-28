@@ -6,49 +6,38 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Profile
-from schemas import RecommendationOut
-from recommendation import build_recommendation
-from services.profile_parser import parse_free_text, explain_parsing
-from services.llm_service import generate_report_summary
+from agent.core import RecommendationAgent
+from services.profile_parser import explain_parsing
 
 
 router = APIRouter(prefix="/api", tags=["report"])
 
-# Jinja2 templates directory (relative to this file: ../templates)
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 
-def _build_report_data(text: str, rank: Optional[int], db: Session, with_summary: bool = True, province: Optional[str] = None):
-    """Shared pipeline: parse -> recommend -> explain -> optional LLM summary."""
-    profile_data = parse_free_text(text, rank, province=province)
-    profile = Profile(**profile_data.model_dump())
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
-
-    result = build_recommendation(profile, db)
-    explanations = explain_parsing(profile_data, text)
-
-    summary = ""
-    if with_summary:
-        # Try to get a personalized LLM summary; fall back gracefully
-        try:
-            summary = generate_report_summary(profile_data.model_dump(), result)
-        except Exception:
-            summary = ""
-
-    return profile, profile_data, result, explanations, summary
+def _build_report_data(text: str, rank: Optional[int], db: Session, province: Optional[str] = None):
+    """Shared pipeline: parse -> recommend -> agent rationale."""
+    agent = RecommendationAgent(text=text, rank=rank)
+    state = agent.run(db)
+    profile = state.profile
+    result = {
+        "profile": profile,
+        "total_groups": state.groups_count,
+        "冲_count": sum(1 for g in state.selected if g.level == "冲"),
+        "稳_count": sum(1 for g in state.selected if g.level == "稳"),
+        "保_count": sum(1 for g in state.selected if g.level == "保"),
+        "recommendations": state.selected,
+        "warnings": state.warnings,
+    }
+    explanations = explain_parsing(profile, text)
+    return profile, result, explanations, state.trace
 
 
-@router.post("/recommendations/from-text", response_model=RecommendationOut)
+@router.post("/recommendations/from-text")
 def recommend_from_text(payload: dict, db: Session = Depends(get_db)):
-    """
-    自由文本入口：用户用自然语言描述志愿意向，并提供省排名。
-    系统自动解析为结构化画像，生成推荐方案。
-    """
+    """自由文本入口：返回 Agent 推荐结果与 trace。"""
     text = payload.get("text", "").strip()
     rank = payload.get("rank")
     province = payload.get("province", "").strip() or None
@@ -60,18 +49,27 @@ def recommend_from_text(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="rank 必须是整数")
 
     try:
-        profile, profile_data, result, explanations, summary = _build_report_data(text, rank, db, with_summary=False, province=province)
+        profile, result, explanations, trace = _build_report_data(text, rank, db, province=province)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
-    return result
+    return {
+        "profile": profile,
+        "total_groups": result["total_groups"],
+        "冲_count": result["冲_count"],
+        "稳_count": result["稳_count"],
+        "保_count": result["保_count"],
+        "recommendations": [g.model_dump() for g in result["recommendations"]],
+        "warnings": result["warnings"],
+        "trace": [t.__dict__ for t in trace],
+    }
 
 
 @router.post("/reports/from-text", response_class=HTMLResponse)
 def report_from_text(request: Request, payload: dict, db: Session = Depends(get_db)):
-    """
-    直接返回一份完整的 HTML 志愿填报报告。
-    """
+    """直接返回一份完整的 HTML 志愿填报报告。"""
     text = payload.get("text", "").strip()
     rank = payload.get("rank")
     province = payload.get("province", "").strip() or None
@@ -83,18 +81,19 @@ def report_from_text(request: Request, payload: dict, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="rank 必须是整数")
 
     try:
-        profile, profile_data, result, explanations, summary = _build_report_data(text, rank, db, province=province)
+        profile, result, explanations, trace = _build_report_data(text, rank, db, province=province)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
-    # 为 HTML 模板提供可 JSON 序列化的 plain dict
     template_result = {
         "total_groups": result["total_groups"],
         "冲_count": result["冲_count"],
         "稳_count": result["稳_count"],
         "保_count": result["保_count"],
         "warnings": result["warnings"],
-        "recommendations": [r.model_dump() for r in result["recommendations"]],
+        "recommendations": [g.model_dump() for g in result["recommendations"]],
     }
 
     return templates.TemplateResponse(
@@ -105,6 +104,7 @@ def report_from_text(request: Request, payload: dict, db: Session = Depends(get_
             "profile": profile,
             "explanations": explanations,
             "result": template_result,
-            "summary": summary,
+            "summary": "",
+            "trace": [t.__dict__ for t in trace],
         },
     )

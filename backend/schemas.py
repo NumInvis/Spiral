@@ -5,13 +5,14 @@ from datetime import datetime
 
 class ProfileCreate(BaseModel):
     name: Optional[str] = None
-    province: str = "湖北"
+    province: str = Field(..., min_length=1)
     subject_type: str = Field(..., pattern="^(物理|历史)$")
     score: int = Field(..., ge=0, le=750)
     rank: int = Field(..., ge=1)
     preferred_major: Optional[str] = None
     preferred_city: Optional[str] = None
-    strategy: str = Field(default="balanced", pattern="^(school|major|city|balanced|employment|academic)$")
+    strategy: Optional[str] = None
+    risk_preference: str = Field(default="balanced", pattern="^(aggressive|balanced|conservative)$")
     accept_adjustment: bool = True
     allow_special_types: bool = False
 
@@ -102,6 +103,15 @@ class RecommendationItem(BaseModel):
     data_confidence: str
 
 
+class AgentStep(BaseModel):
+    step: int
+    name: str
+    status: str  # running / done / error
+    input_summary: Optional[str] = None
+    output_summary: Optional[str] = None
+    details: Optional[dict] = None
+
+
 class RecommendationOut(BaseModel):
     profile: ProfileOut
     total_groups: int
@@ -110,6 +120,10 @@ class RecommendationOut(BaseModel):
     保_count: int
     recommendations: List[RecommendationItem]
     warnings: List[str]
+
+
+class AgentRecommendationOut(RecommendationOut):
+    trace: List[AgentStep] = []
 
 
 class ProvinceRuleOut(BaseModel):

@@ -333,7 +333,7 @@ def import_hubei_csv(
     db: Session,
     csv_path: Optional[str] = None,
     clear: bool = True,
-    plan_year: int = CURRENT_YEAR,
+    plan_year: int = LATEST_HISTORICAL_YEAR,
     enrich_descriptions: bool = True,
 ) -> dict:
     """从 gaokao-zhiyuan 开源整理的湖北投档/计划 CSV 导入真实数据。
@@ -440,30 +440,61 @@ def import_hubei_csv(
         else:
             major = major_cache[cache_key]
 
-        # 投档数据：只使用官方院校专业组投档线（组线），不展示/不依赖专业线估算。
-        # 2024 来自开源整理的官方投档数据；2025 来自湖北省教育考试院官方 PDF + 一分一段表换算。
+        # 投档数据：区分专业真实线（A）与专业组投档线（B/C）。
+        # 2024/2023/2022 来自开源整理的官方投档/录取数据；2025 来自湖北省教育考试院官方 PDF。
+        raw_group_code = str(row.get("专业组代码", "")).strip() or None
+        group_code_2025 = str(row.get("专业组代码_2025", "")).strip() or None
         score_spec = [
-            (2024, "专业组最低分", "专业组最低位次"),
-            (2025, "专业组最低分_2025", "专业组最低位次_2025"),
+            # (year, major_score_col, major_rank_col, group_score_col, group_rank_col,
+            #  confidence_if_major, confidence_if_group, group_code_source)
+            (2024, "最低分", "最低位次", "专业组最低分", "专业组最低位次", "A", "B", raw_group_code),
+            (2023, "最低分.1", "最低位次.1", "专业组最低分.1", "专业组最低位次.1", "A", "B", raw_group_code),
+            (2022, "最低分.2", "最低位次.2", None, None, "A", None, raw_group_code),
+            (2025, None, None, "专业组最低分_2025", "专业组最低位次_2025", None, "C", group_code_2025),
         ]
-        for year, group_score_col, group_rank_col in score_spec:
-            group_s = _parse_int(row.get(group_score_col))
-            group_r = _parse_int(row.get(group_rank_col))
+        for year, major_score_col, major_rank_col, group_score_col, group_rank_col, conf_major, conf_group, gc_src in score_spec:
+            major_s = _parse_int(row.get(major_score_col)) if major_score_col else None
+            major_r = _parse_int(row.get(major_rank_col)) if major_rank_col else None
+            group_s = _parse_int(row.get(group_score_col)) if group_score_col else None
+            group_r = _parse_int(row.get(group_rank_col)) if group_rank_col else None
 
-            if group_s is None and group_r is None:
+            if (major_s is None and major_r is None and group_s is None and group_r is None):
                 continue
+
+            # 优先使用专业真实线；否则退回到组线，且不做热度估算
+            if major_r is not None:
+                best_s, best_r, confidence = major_s, major_r, conf_major
+            elif group_r is not None:
+                best_s, best_r, confidence = group_s, group_r, conf_group
+            else:
+                # 有位次缺失但分数存在的情况：仅用分数，置信度取组线
+                best_s, best_r, confidence = major_s or group_s, None, conf_group or conf_major or "C"
+
+            if year == 2025:
+                source = "湖北省教育考试院2025年本科普通批院校专业组投档线（PDF）"
+            elif major_r is not None:
+                source = f"湖北{year}年本科普通批专业录取数据"
+            else:
+                source = f"湖北{year}年本科普通批院校专业组投档线"
+
+            # 该年份对应的组代码：2025 用官方 PDF 组代码，其它年份用 CSV 原始组代码
+            if gc_src:
+                gc = gc_src[-2:] if len(gc_src) >= 2 and gc_src[0].isalpha() else gc_src
+            else:
+                gc = None
 
             db.add(MajorScore(
                 major_id=major.id,
                 province="湖北",
                 subject_type=subject_type,
                 year=year,
-                lowest_score=group_s,
-                lowest_rank=group_r,
+                lowest_score=best_s,
+                lowest_rank=best_r,
                 group_lowest_score=group_s,
                 group_lowest_rank=group_r,
-                data_confidence="A",
-                data_source=f"湖北{year}年本科普通批官方院校专业组投档线" if year == 2025 else f"湖北{year}年本科普通批投档/录取数据",
+                group_code=gc,
+                data_confidence=confidence,
+                data_source=source,
             ))
             stats[f"scores_{year}"] = stats.get(f"scores_{year}", 0) + 1
 

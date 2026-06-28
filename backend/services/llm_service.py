@@ -30,11 +30,11 @@ def chat_completion(
 ) -> str:
     """
     Send a chat request and return the assistant's text content.
-    Falls back to a placeholder string if no API key is configured.
+    没有配置 API key 时直接报错，不允许降级。
     """
     api_key = _get_api_key()
     if not api_key:
-        return "[LLM 未配置：未找到 WINCODE_API_KEY 或 OPENAI_API_KEY 环境变量]"
+        raise RuntimeError("LLM 未配置：未找到 WINCODE_API_KEY 或 OPENAI_API_KEY 环境变量")
 
     url = f"{_get_base_url()}/chat/completions"
     headers = {
@@ -58,24 +58,22 @@ def chat_completion(
 def parse_profile_with_llm(text: str, rank: Optional[int] = None) -> Dict:
     """
     Use LLM to extract structured profile fields from free-text description.
-    Returns a dict compatible with ProfileCreate (keys: province, subject_type,
-    score, rank, preferred_major, preferred_city, strategy, allow_special_types, notes).
+    Returns a dict compatible with ProfileCreate.
+    禁止预设省份、科类、strategy 等默认值；无法推断时必须输出 null。
     """
     system_prompt = (
         "你是 Spiral 高考志愿填报系统的画像解析专家。请从用户的自然语言描述中提取结构化信息，"
         "输出严格的 JSON 对象，不要任何解释。JSON 字段如下：\n"
-        "- province: 省份，未说明则默认\"湖北\"\n"
-        "- subject_type: \"物理\" 或 \"历史\"\n"
-        "- score: 高考分数整数，无法提取填 0\n"
-        "- rank: 全省位次整数\n"
+        "- province: 省份，无法推断填 null\n"
+        "- subject_type: \"物理\" 或 \"历史\"，无法推断填 null\n"
+        "- score: 高考分数整数，无法提取填 null\n"
+        "- rank: 全省位次整数，无法提取填 null\n"
         "- preferred_major: 意向专业，多个用顿号分隔，没有填 null\n"
         "- preferred_city: 意向城市，多个用顿号分隔，没有填 null\n"
-        "- strategy: 必填，从 school/major/city/employment/academic/balanced 中选一个\n"
+        "- risk_preference: 从 aggressive（激进，多冲）/balanced（平衡）/conservative（保守，多保）中选一个，无法推断填 balanced\n"
         "- allow_special_types: 是否明确提及国家专项/地方专项/高校专项/预科/定向/民族班/援藏/南疆/边防军人子女，布尔值\n"
         "- notes: 原始描述摘要\n"
-        "strategy 判断规则：提到学校层次/985/211/名校 → school；提到兴趣/想学/专业壁垒 → major；"
-        "提到城市/地域/留在 → city；提到就业/薪资/考公 → employment；提到考研/保研/深造 → academic；"
-        "都不明显 → balanced。"
+        "禁止自行编造省份、科类、位次或 strategy 等字段；无法推断时必须输出 null。"
     )
     user_content = f"用户描述：{text}\n"
     if rank is not None:
@@ -94,19 +92,15 @@ def parse_profile_with_llm(text: str, rank: Optional[int] = None) -> Dict:
             raw = raw[4:].strip()
     parsed = json.loads(raw)
 
-    # Enforce required fields and fallbacks
-    parsed.setdefault("province", "湖北")
-    parsed.setdefault("subject_type", "物理")
-    parsed.setdefault("score", 0)
-    parsed.setdefault("rank", rank)
+    # 补全可选字段，但禁止给核心字段硬编码默认值
     parsed.setdefault("preferred_major", None)
     parsed.setdefault("preferred_city", None)
-    parsed.setdefault("strategy", "balanced")
+    parsed.setdefault("risk_preference", "balanced")
     parsed["accept_adjustment"] = True
     parsed.setdefault("allow_special_types", False)
     parsed.setdefault("notes", text)
 
-    # If LLM didn't extract rank but user provided it, use it
+    # 如果文本未提供位次，使用用户显式传入的位次
     if parsed.get("rank") is None and rank is not None:
         parsed["rank"] = rank
 
@@ -116,11 +110,10 @@ def parse_profile_with_llm(text: str, rank: Optional[int] = None) -> Dict:
 def evaluate_major_match_with_llm(major_name: str, preferred_majors: Optional[List[str]]) -> Optional[Dict]:
     """
     使用 LLM 判断单个专业与考生意向专业的相关度。
-    返回 {"score": 0.0-1.0, "reason": "一句话理由"}；无 API Key 或调用失败返回 None。
+    返回 {"score": 0.0-1.0, "reason": "一句话理由"}；无 API Key 时报错，不降级。
     """
-    api_key = _get_api_key()
-    if not api_key:
-        return None
+    if not _get_api_key():
+        raise RuntimeError("LLM 未配置：无法评估专业匹配度")
     if not preferred_majors:
         return None
 

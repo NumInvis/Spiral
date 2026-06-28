@@ -5,6 +5,7 @@ from database import SessionLocal, init_db
 from models import Document
 from services import import_hubei_csv, RAGService
 from services.data_importer import import_ranking_json, import_ranking_csv
+from config.province_rules import LATEST_HISTORICAL_YEAR
 from services.document_builder import build_all_documents
 from recommendation import clear_schools_cache
 
@@ -16,7 +17,7 @@ def seed(skip_rag: bool = None):
     db: Session = SessionLocal()
     try:
         csv_path = os.path.join(os.path.dirname(__file__), "data", "raw_hubei_2024_2025.csv")
-        stats = import_hubei_csv(db, csv_path=csv_path, clear=True, enrich_descriptions=True)
+        stats = import_hubei_csv(db, csv_path=csv_path, clear=True, plan_year=LATEST_HISTORICAL_YEAR, enrich_descriptions=True)
         print(f"[seed] imported hubei csv: {stats}")
 
         # 导入 2024/2025 一分一段表
