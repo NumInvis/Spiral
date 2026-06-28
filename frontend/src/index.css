@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    background-image: radial-gradient(#1A1A1A 0.5px, transparent 0.5px);
+    background-size: 24px 24px;
+    background-position: -12px -12px;
+    background-color: #F4F4F0;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-serif font-semibold tracking-tight;
+  }
+
+  ::selection {
+    background-color: #1E3A5A;
+    color: #F4F4F0;
+  }
+}
+
+@layer components {
+  .brutal-card {
+    @apply bg-white border-3 border-ink shadow-brutal rounded-brutal;
+  }
+
+  .brutal-card-accent {
+    @apply bg-white border-3 border-accent shadow-brutal-accent rounded-brutal;
+  }
+
+  .brutal-btn {
+    @apply inline-flex items-center justify-center px-5 py-3 bg-accent text-white font-semibold border-3 border-ink shadow-brutal-sm rounded-brutal transition-all;
+  }
+
+  .brutal-btn:hover {
+    @apply translate-x-[2px] translate-y-[2px] shadow-none;
+  }
+
+  .brutal-btn-secondary {
+    @apply inline-flex items-center justify-center px-5 py-3 bg-paper text-ink font-semibold border-3 border-ink shadow-brutal-sm rounded-brutal transition-all;
+  }
+
+  .brutal-btn-secondary:hover {
+    @apply translate-x-[2px] translate-y-[2px] shadow-none bg-white;
+  }
+
+  .brutal-input {
+    @apply w-full px-4 py-3 bg-white border-3 border-ink rounded-brutal focus:outline-none focus:ring-0 focus:border-accent font-mono text-base;
+  }
+
+  .brutal-select {
+    @apply w-full px-4 py-3 bg-white border-3 border-ink rounded-brutal focus:outline-none focus:border-accent appearance-none;
+  }
+
+  .brutal-table {
+    @apply w-full border-collapse border-3 border-ink;
+  }
+
+  .brutal-table th {
+    @apply bg-accent text-white font-serif text-left px-4 py-3 border-2 border-ink;
+  }
+
+  .brutal-table td {
+    @apply px-4 py-3 border-2 border-ink align-top;
+  }
+
+  .brutal-table tr:nth-child(even) {
+    @apply bg-white;
+  }
+
+  .brutal-table tr:nth-child(odd) {
+    @apply bg-paper;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-1 text-xs font-bold border-2 border-ink rounded-brutal;
+  }
+
+  .badge-chong {
+    @apply badge bg-burgundy text-white;
+  }
+
+  .badge-wen {
+    @apply badge bg-accent text-white;
+  }
+
+  .badge-bao {
+    @apply badge bg-teal text-white;
+  }
+
+  .badge-conf-a {
+    @apply badge bg-sage text-white;
+  }
+
+  .badge-conf-b {
+    @apply badge bg-paper text-ink;
+  }
+
+  .badge-conf-c {
+    @apply badge bg-white text-burgundy border-burgundy;
+  }
+
+  .section-title {
+    @apply text-3xl md:text-4xl font-serif font-bold text-ink mb-2;
+  }
+
+  .section-subtitle {
+    @apply text-muted font-mono text-sm mb-8;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

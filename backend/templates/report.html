@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spiral · 高考志愿填报报告</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #F4F4F0;
+      --ink: #1A1A1A;
+      --accent: #1E3A5A;
+      --accent-light: #2E5A8C;
+      --teal: #0F766E;
+      --burgundy: #7C2D12;
+      --sage: #5F6F52;
+      --warn: #B91C1C;
+      --muted: #5C5C5C;
+      --shadow: 6px 6px 0 0 var(--ink);
+      --shadow-sm: 3px 3px 0 0 var(--ink);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background-color: var(--paper);
+      color: var(--ink);
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.6;
+      background-image: radial-gradient(var(--ink) 0.5px, transparent 0.5px);
+      background-size: 24px 24px;
+      background-position: -12px -12px;
+    }
+
+    h1, h2, h3, h4 { font-family: 'Source Serif 4', Georgia, serif; margin: 0 0 0.5em; }
+
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+
+    /* Cover */
+    .cover {
+      min-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      border: 4px solid var(--ink);
+      background: #fff;
+      padding: 64px;
+      box-shadow: var(--shadow);
+      margin-bottom: 48px;
+      position: relative;
+    }
+
+    .cover::before {
+      content: '';
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: -16px;
+      bottom: -16px;
+      background: repeating-linear-gradient(
+        45deg,
+        var(--accent),
+        var(--accent) 10px,
+        var(--accent-light) 10px,
+        var(--accent-light) 20px
+      );
+      z-index: -1;
+    }
+
+    .cover-badge {
+      display: inline-block;
+      border: 2px solid var(--ink);
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+      background: var(--paper);
+    }
+
+    .cover h1 {
+      font-size: clamp(48px, 8vw, 88px);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+
+    .cover-subtitle {
+      font-size: 22px;
+      color: var(--muted);
+      max-width: 600px;
+      margin-bottom: 48px;
+    }
+
+    .cover-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      width: 100%;
+      max-width: 700px;
+    }
+
+    .cover-meta-item {
+      border: 2px solid var(--ink);
+      padding: 14px;
+      background: var(--paper);
+    }
+
+    .cover-meta-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .cover-meta-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .cover-brand {
+      position: absolute;
+      bottom: 32px;
+      right: 40px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* Cards */
+    .card {
+      background: #fff;
+      border: 3px solid var(--ink);
+      box-shadow: var(--shadow);
+      padding: 32px;
+      margin-bottom: 32px;
+    }
+
+    .card-title {
+      font-size: 28px;
+      color: var(--accent);
+      border-bottom: 3px solid var(--ink);
+      padding-bottom: 12px;
+      margin-bottom: 24px;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    /* Quote / user input */
+    .user-input {
+      background: var(--paper);
+      border-left: 6px solid var(--accent);
+      padding: 24px 28px;
+      font-size: 18px;
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-style: italic;
+      color: var(--ink);
+      margin-bottom: 24px;
+    }
+
+    /* Parsing grid */
+    .parse-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .parse-item {
+      border: 2px solid var(--ink);
+      padding: 16px;
+      background: var(--paper);
+    }
+
+    .parse-item-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    .parse-item-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .parse-item-reason {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .stat-box {
+      border: 3px solid var(--ink);
+      padding: 24px;
+      text-align: center;
+      background: #fff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .stat-number {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 48px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 8px;
+    }
+
+    .stat-hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .stat-chong .stat-number { color: var(--burgundy); }
+    .stat-wen .stat-number { color: var(--accent); }
+    .stat-bao .stat-number { color: var(--teal); }
+
+    /* Charts */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin: 24px 0;
+    }
+
+    .chart-box {
+      border: 2px solid var(--ink);
+      background: #fff;
+      padding: 16px;
+    }
+
+    .chart-title {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .chart {
+      width: 100%;
+      height: 260px;
+    }
+
+    /* Warnings */
+    .warning-box {
+      border: 3px solid var(--warn);
+      background: #fff;
+      padding: 20px 24px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+
+    .warning-icon {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      background: var(--warn);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      border: 2px solid var(--ink);
+    }
+
+    .warning-text {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* Table */
+    .table-wrap {
+      overflow-x: auto;
+      border: 3px solid var(--ink);
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      border: 2px solid var(--ink);
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--accent);
+      color: #fff;
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    tr:nth-child(even) { background: var(--paper); }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border: 2px solid var(--ink);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #fff;
+    }
+
+    .badge-chong { background: var(--burgundy); }
+    .badge-wen { background: var(--accent); }
+    .badge-bao { background: var(--teal); }
+
+    .badge-conf-a { background: var(--sage); color: #fff; }
+    .badge-conf-b { background: var(--paper); color: var(--ink); }
+    .badge-conf-c { background: #fff; color: var(--burgundy); border-color: var(--burgundy); }
+    .badge-conf-d { background: var(--warn); color: #fff; }
+
+    .probability {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 18px;
+    }
+
+    .school-name { font-weight: 700; }
+    .school-meta { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+    /* Detail rows */
+    .detail-row td {
+      background: #fff;
+      border-top: none;
+    }
+
+    .detail-table {
+      width: 100%;
+      margin-top: 8px;
+      border: 2px solid var(--ink);
+    }
+
+    .detail-table th {
+      background: var(--paper);
+      color: var(--ink);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .detail-table td {
+      font-size: 12px;
+      padding: 8px 10px;
+    }
+
+    .reason-box {
+      background: var(--paper);
+      border: 2px solid var(--ink);
+      padding: 16px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .risk-box {
+      background: #fff;
+      border: 2px solid var(--warn);
+      padding: 16px;
+      font-size: 13px;
+      color: var(--warn);
+    }
+
+    /* Methodology */
+    .method-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .method-list li {
+      border: 2px solid var(--ink);
+      padding: 18px 20px;
+      margin-bottom: 12px;
+      background: var(--paper);
+      counter-increment: method;
+      position: relative;
+      padding-left: 64px;
+    }
+
+    .method-list li::before {
+      content: counter(method, decimal-leading-zero);
+      position: absolute;
+      left: 18px;
+      top: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .method-list h4 { font-size: 18px; margin-bottom: 6px; }
+    .method-list p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    /* Footer */
+    .footer {
+      border-top: 3px solid var(--ink);
+      padding-top: 24px;
+      margin-top: 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .footer-brand {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .footer-disclaimer {
+      max-width: 600px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media print {
+      .page { padding: 0; max-width: 100%; }
+      .cover { min-height: auto; margin-bottom: 24px; box-shadow: none; }
+      .card { box-shadow: none; break-inside: avoid; }
+      .chart { break-inside: avoid; }
+    }
+
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: 1fr; }
+      .cover { padding: 32px 24px; }
+      .cover h1 { font-size: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Cover -->
+    <section class="cover">
+      <div class="cover-badge">Spiral Report · 变分无限</div>
+      <h1>高考志愿<br/>填报报告</h1>
+      <p class="cover-subtitle">基于自然语言描述与全省位次，由 Spiral Agent 生成可解释、可核验、带风险提示的 45 志愿方案。</p>
+      <div class="cover-meta">
+        <div class="cover-meta-item">
+          <div class="cover-meta-label">省份</div>
+          <div class="cover-meta-value">{{ profile.province }}</div>
+        </div>
+        <div class="cover-meta-item">
+          <div class="cover-meta-label">科类</div>
+          <div class="cover-meta-value">{{ profile.subject_type }}</div>
+        </div>
+        <div class="cover-meta-item">
+          <div class="cover-meta-label">全省位次</div>
+          <div class="cover-meta-value">{{ "{:,}".format(profile.rank) }}</div>
+        </div>
+        <div class="cover-meta-item">
+          <div class="cover-meta-label">策略</div>
+          <div class="cover-meta-value">{{ profile.strategy }}</div>
+        </div>
+      </div>
+      <div class="cover-brand">© 2026 变分无限 Variational Infinite</div>
+    </section>
+
+    <!-- User Input & Parsing -->
+    <section class="card">
+      <div class="card-subtitle">Section 01 · 首</div>
+      <h2 class="card-title">用户原始输入与画像解析</h2>
+
+      <p class="card-subtitle">原始描述（无任何预设，自由表达）</p>
+      <div class="user-input">“{{ text }}”</div>
+
+      <p class="card-subtitle">Spiral 解析结果</p>
+      <div class="parse-grid">
+        {% for item in explanations %}
+        <div class="parse-item">
+          <div class="parse-item-label">{{ item.item }}</div>
+          <div class="parse-item-value">{{ item.value }}</div>
+          <div class="parse-item-reason">{{ item.reason }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Overview Stats -->
+    <section class="card">
+      <div class="card-subtitle">Section 02 · 中</div>
+      <h2 class="card-title">推荐方案总览</h2>
+
+      <div class="stats-grid">
+        <div class="stat-box stat-chong">
+          <div class="stat-number">{{ result.冲_count }}</div>
+          <div class="stat-label">冲</div>
+          <div class="stat-hint">概率 20%–50%</div>
+        </div>
+        <div class="stat-box stat-wen">
+          <div class="stat-number">{{ result.稳_count }}</div>
+          <div class="stat-label">稳</div>
+          <div class="stat-hint">概率 50%–85%</div>
+        </div>
+        <div class="stat-box stat-bao">
+          <div class="stat-number">{{ result.保_count }}</div>
+          <div class="stat-label">保</div>
+          <div class="stat-hint">概率 85%+</div>
+        </div>
+      </div>
+
+      {% if summary %}
+      <div class="reason-box" style="font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.7;">
+        {{ summary }}
+      </div>
+      {% endif %}
+
+      {% if result.warnings %}
+      <div class="warning-box">
+        <div class="warning-icon">!</div>
+        <div>
+          {% for w in result.warnings %}
+          <div class="warning-text">{{ w }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="charts-grid">
+        <div class="chart-box">
+          <div class="chart-title">冲稳保分布</div>
+          <div id="chart-level" class="chart"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">录取概率区间</div>
+          <div id="chart-prob" class="chart"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">院校层次分布</div>
+          <div id="chart-levels" class="chart"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">数据置信分布</div>
+          <div id="chart-confidence" class="chart"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Detailed Table -->
+    <section class="card">
+      <div class="card-subtitle">Section 03 · 尾</div>
+      <h2 class="card-title">45 志愿院校专业组详表</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>档位</th>
+              <th>院校</th>
+              <th>专业组</th>
+              <th>录取概率</th>
+              <th>数据置信</th>
+              <th>详情</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in result.recommendations %}
+            <tr>
+              <td class="mono" style="text-align:center;font-weight:700;">{{ item.group_index }}</td>
+              <td>
+                <span class="badge badge-{{ 'chong' if item.level == '冲' else 'wen' if item.level == '稳' else 'bao' }}">{{ item.level }}</span>
+              </td>
+              <td>
+                <div class="school-name">{{ item.school_name }}</div>
+                <div class="school-meta">{{ item.school_code }} · {{ item.city or '—' }}</div>
+              </td>
+              <td class="mono">{{ item.group_code }}</td>
+              <td class="probability">{{ (item.probability * 100) | int }}%</td>
+              <td>
+                <span class="badge badge-conf-{{ item.data_confidence | lower }}">{{ item.data_confidence }}</span>
+              </td>
+              <td style="font-size:12px;">
+                <div style="max-width:260px;">{{ item.reason }}</div>
+              </td>
+            </tr>
+            <tr class="detail-row">
+              <td colspan="7">
+                {% if item.risk_notes %}
+                <div class="risk-box" style="margin-bottom:12px;">
+                  <strong>风险提示：</strong>{{ item.risk_notes | join('；') }}
+                </div>
+                {% endif %}
+                <table class="detail-table">
+                  <thead>
+                    <tr>
+                      <th>专业</th>
+                      <th>门类</th>
+                      <th>学科评估</th>
+                      <th>往年最低位次</th>
+                      <th>往年最低分</th>
+                      <th>概率</th>
+                      <th>相关度</th>
+                      <th>置信</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for m in item.majors %}
+                    <tr>
+                      <td style="font-weight:600;">{{ m.name }}</td>
+                      <td>{{ m.category or '—' }}</td>
+                      <td>{{ m.discipline_eval or '—' }}</td>
+                      <td class="mono">{{ "{:,}".format(m.ref_rank) if m.ref_rank else '—' }}</td>
+                      <td class="mono">{{ m.ref_score or '—' }}</td>
+                      <td class="mono" style="font-weight:700;">{{ (m.probability * 100) | int }}%</td>
+                      <td class="mono" style="font-weight:700;">{{ (m.relevance * 100) | int if m.relevance is defined else '—' }}</td>
+                      <td><span class="badge badge-conf-{{ m.data_confidence | lower }}">{{ m.data_confidence }}</span></td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Methodology -->
+    <section class="card">
+      <div class="card-subtitle">附录</div>
+      <h2 class="card-title">中间过程优化说明</h2>
+      <ol class="method-list">
+        <li>
+          <h4>自由文本画像解析</h4>
+          <p>不依赖固定表单，从自然语言中自动提取科类、策略、意向城市与专业等关键信息，并给出可解释的依据。系统默认考生服从专业组内调剂。</p>
+        </li>
+        <li>
+          <h4>位次为王 + 等位分换算</h4>
+          <p>以考生全省位次为核心，基于 RankTable 一分一段表做等位分换算，把不同年份的录取位次统一到同一量纲后再估算概率。当前仅在有对应年份一分一段表时启用精确换算。</p>
+        </li>
+        <li>
+          <h4>冲稳保概率模型</h4>
+          <p>基于位次差距、招生计划、数据置信度估算录取概率，强制约束保底志愿数量，避免激进推荐。</p>
+        </li>
+        <li>
+          <h4>数据置信分级</h4>
+          <p>A/B/C/D 四级置信标签：A 为专业真实录取线；B 为同组专业线插值估算；C 为组线反推或历史遗留数据；D 为缺失。缺失/估算数据明确标注，重要结论要求人工二次核实。</p>
+        </li>
+        <li>
+          <h4>专业相关度与特殊类型过滤</h4>
+          <p>通过规则 + 可选 LLM 评估专业名称与考生意向的匹配度；默认排除预科、国家专项、地方专项、定向等特殊类型招生，避免 irrelevant 专业混入推荐。</p>
+        </li>
+        <li>
+          <h4>政策校验</h4>
+          <p>调用省份规则校验考生分数是否过本科线、选科要求是否匹配（如物化捆绑）、是否误推特殊类型招生（预科/专项/定向）。</p>
+        </li>
+        <li>
+          <h4>张雪峰式经验嵌入</h4>
+          <p>借鉴“专业壁垒”“地域就业”“一级学科思维”等理念，在推荐理由与风险说明中给出更接近真实决策的提示。</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div>
+        <div class="footer-brand">变分无限 · Spiral</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">Project Spiral · 高考志愿填报 Agent</div>
+      </div>
+      <div class="footer-disclaimer">
+        本报告由 Spiral 系统自动生成，仅供志愿填报参考。最终填报方案请以各省招生考试机构官方信息为准。报告中标注 C/D 级置信度的数据建议人工二次核实。
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const levelData = [
+      { value: {{ result.冲_count }}, name: '冲' },
+      { value: {{ result.稳_count }}, name: '稳' },
+      { value: {{ result.保_count }}, name: '保' }
+    ];
+
+    const colorMap = { '冲': '#7C2D12', '稳': '#1E3A5A', '保': '#0F766E' };
+    const levelColors = levelData.map(d => colorMap[d.name]);
+
+    echarts.init(document.getElementById('chart-level')).setOption({
+      color: levelColors,
+      tooltip: { trigger: 'item', formatter: '{b}: {c} 个 ({d}%)' },
+      legend: { bottom: 0, textStyle: { fontFamily: 'Inter', fontWeight: 700 } },
+      series: [{
+        type: 'pie',
+        radius: ['45%', '70%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderColor: '#1A1A1A', borderWidth: 2 },
+        label: { show: false },
+        data: levelData
+      }]
+    });
+
+    const recs = {{ result.recommendations | tojson }};
+    const buckets = [
+      { name: '20-35%', count: 0, level: '冲' },
+      { name: '35-50%', count: 0, level: '冲' },
+      { name: '50-65%', count: 0, level: '稳' },
+      { name: '65-85%', count: 0, level: '稳' },
+      { name: '85-95%', count: 0, level: '保' },
+      { name: '95%+', count: 0, level: '保' }
+    ];
+    recs.forEach(r => {
+      const p = r.probability * 100;
+      if (p < 35) buckets[0].count++;
+      else if (p < 50) buckets[1].count++;
+      else if (p < 65) buckets[2].count++;
+      else if (p < 85) buckets[3].count++;
+      else if (p < 95) buckets[4].count++;
+      else buckets[5].count++;
+    });
+
+    echarts.init(document.getElementById('chart-prob')).setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+      xAxis: { type: 'category', data: buckets.map(b => b.name), axisLine: { lineStyle: { color: '#1A1A1A', width: 2 } } },
+      yAxis: { type: 'value', axisLine: { lineStyle: { color: '#1A1A1A', width: 2 } }, splitLine: { lineStyle: { type: 'dashed' } } },
+      series: [{
+        type: 'bar',
+        data: buckets.map(b => ({ value: b.count, itemStyle: { color: colorMap[b.level], borderColor: '#1A1A1A', borderWidth: 2 } }))
+      }]
+    });
+
+    const levelDist = {};
+    recs.forEach(r => {
+      const lv = r.school_level || '普通本科';
+      levelDist[lv] = (levelDist[lv] || 0) + 1;
+    });
+    const schoolLevelColors = {
+      '985': '#1E3A5A', '211': '#2E5A8C', '双一流': '#0F766E',
+      '普通本科': '#5F6F52', '民办本科': '#7C2D12'
+    };
+    const levelNames = Object.keys(levelDist).sort((a, b) => levelDist[b] - levelDist[a]);
+
+    echarts.init(document.getElementById('chart-levels')).setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: '3%', right: '8%', bottom: '3%', containLabel: true },
+      xAxis: { type: 'value', axisLine: { lineStyle: { color: '#1A1A1A', width: 2 } }, splitLine: { lineStyle: { type: 'dashed' } } },
+      yAxis: { type: 'category', data: levelNames, axisLine: { lineStyle: { color: '#1A1A1A', width: 2 } } },
+      series: [{
+        type: 'bar',
+        data: levelNames.map(n => ({ value: levelDist[n], itemStyle: { color: schoolLevelColors[n] || '#5C5C5C', borderColor: '#1A1A1A', borderWidth: 2 } }))
+      }]
+    });
+
+    // 数据置信分布
+    const confDist = { 'A': 0, 'B': 0, 'C': 0, 'D': 0 };
+    recs.forEach(r => {
+      const conf = (r.data_confidence || 'D').toUpperCase();
+      confDist[conf] = (confDist[conf] || 0) + 1;
+      (r.majors || []).forEach(m => {
+        const mc = (m.data_confidence || 'D').toUpperCase();
+        confDist[mc] = (confDist[mc] || 0) + 1;
+      });
+    });
+    const confColors = { 'A': '#5F6F52', 'B': '#2E5A8C', 'C': '#7C2D12', 'D': '#B91C1C' };
+    const confData = Object.keys(confDist).map(k => ({ name: k, value: confDist[k] }));
+
+    echarts.init(document.getElementById('chart-confidence')).setOption({
+      color: confData.map(d => confColors[d.name] || '#5C5C5C'),
+      tooltip: { trigger: 'item', formatter: '{b}: {c} 条 ({d}%)' },
+      legend: { bottom: 0, textStyle: { fontFamily: 'Inter', fontWeight: 700 } },
+      series: [{
+        type: 'pie',
+        radius: ['45%', '70%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderColor: '#1A1A1A', borderWidth: 2 },
+        label: { show: false },
+        data: confData
+      }]
+    });
+  </script>
+</body>
+</html>
