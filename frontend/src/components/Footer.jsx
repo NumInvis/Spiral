@@ -26,7 +26,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="pt-6 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-mono text-paper/50">
-          <span>Backend :11678 · Frontend :1678</span>
+          <span>Backend :1670 · Frontend :1678</span>
           <span>© 2026 Academic Gaokao Agent. Open for research.</span>
         </div>
       </div>

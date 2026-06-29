@@ -37,6 +37,12 @@ def main():
         print(f"[test] warnings: {result['warnings']}")
 
         result["recommendations"] = [r.model_dump() for r in result["recommendations"]]
+        if result.get("special_recommendations"):
+            result["special_recommendations"] = [r.model_dump() for r in result["special_recommendations"]]
+            for cat, items in result.get("special_by_type", {}).items():
+                if items and hasattr(items[0], "model_dump"):
+                    result["special_by_type"][cat] = [i.model_dump() if hasattr(i, "model_dump") else i for i in items]
+
         explanations = explain_parsing(profile_data, TEXT)
 
         summary = ""

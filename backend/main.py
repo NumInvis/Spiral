@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
@@ -62,7 +65,7 @@ def health():
 def system_info():
     return SystemInfo(
         version="0.2.0",
-        backend_port=11678,
+        backend_port=1670,
         province_rules={p["province"]: get_province_rule(p["province"]) for p in list_provinces()},
     )
 

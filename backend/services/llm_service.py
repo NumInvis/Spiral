@@ -5,8 +5,8 @@ Defaults to the WinCode endpoint; reads API key from WINCODE_API_KEY env var.
 
 import os
 import json
-from typing import List, Dict, Optional
 import httpx
+from typing import List, Dict, Optional
 
 
 DEFAULT_BASE_URL = "https://wincode.winning.com.cn/ai/v1"
@@ -48,7 +48,9 @@ def chat_completion(
         "max_tokens": max_tokens,
     }
 
-    with httpx.Client(timeout=timeout) as client:
+    # Use httpx with explicit timeout: 30s connect, 300s read (LLM can be slow)
+    t = httpx.Timeout(connect=30.0, read=timeout, write=30.0, pool=30.0)
+    with httpx.Client(timeout=t) as client:
         response = client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()

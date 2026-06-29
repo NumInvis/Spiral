@@ -22,8 +22,15 @@ def _detect_risk_preference(text: str) -> str:
 
 def _detect_special_types(text: str) -> bool:
     """仅当用户文本明确愿意接受特殊类型招生时才允许推荐。"""
-    pattern = r"(?:接受|愿意|可以|填报|报|考虑|走).{0,5}(国家专项|地方专项|高校专项|预科|定向|民族班|援藏|南疆|边防军人子女)"
-    negative = re.search(r"(?:不要|不想|不填|不接受|拒绝|排除).{0,5}(国家专项|地方专项|高校专项|预科|定向|民族班|援藏|南疆|边防军人子女)", text)
+    keywords = (
+        "国家专项|地方专项|高校专项|预科|定向|民族班|"
+        "援藏|南疆|边防军人子女|中外合作|护理类|高收费|"
+        "公费师范|国际班|马来西亚分校"
+    )
+    pattern = rf"(?:接受|愿意|可以|填报|报|考虑|走).{{0,5}}({keywords})"
+    negative = re.search(
+        rf"(?:不要|不想|不填|不接受|拒绝|排除).{{0,5}}({keywords})", text
+    )
     if negative:
         return False
     return bool(re.search(pattern, text))

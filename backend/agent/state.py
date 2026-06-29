@@ -22,6 +22,7 @@ class AgentState:
     candidates_count: int = 0
     groups_count: int = 0
     selected: List[Dict[str, Any]] = field(default_factory=list)
+    special_selected: List[Dict[str, Any]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     data_gaps: List[str] = field(default_factory=list)
     trace: List[AgentStep] = field(default_factory=list)

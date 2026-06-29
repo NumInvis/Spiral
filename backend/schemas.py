@@ -119,7 +119,10 @@ class RecommendationOut(BaseModel):
     稳_count: int
     保_count: int
     recommendations: List[RecommendationItem]
+    special_recommendations: List[RecommendationItem] = []
+    special_by_type: dict = {}
     warnings: List[str]
+    llm_message: str = ""
 
 
 class AgentRecommendationOut(RecommendationOut):

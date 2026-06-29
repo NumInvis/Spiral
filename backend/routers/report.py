@@ -1,13 +1,20 @@
 import os
-from typing import Optional
+from typing import Optional, List, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
 from agent.core import RecommendationAgent
 from services.profile_parser import explain_parsing
+
+
+class ReportPayload(BaseModel):
+    text: str
+    rank: Optional[int] = None
+    province: Optional[str] = None
 
 
 router = APIRouter(prefix="/api", tags=["report"])
@@ -36,11 +43,11 @@ def _build_report_data(text: str, rank: Optional[int], db: Session, province: Op
 
 
 @router.post("/recommendations/from-text")
-def recommend_from_text(payload: dict, db: Session = Depends(get_db)):
+def recommend_from_text(payload: ReportPayload, db: Session = Depends(get_db)):
     """自由文本入口：返回 Agent 推荐结果与 trace。"""
-    text = payload.get("text", "").strip()
-    rank = payload.get("rank")
-    province = payload.get("province", "").strip() or None
+    text = payload.text.strip()
+    rank = payload.rank
+    province = (payload.province or "").strip() or None
     if not text:
         raise HTTPException(status_code=400, detail="描述文本不能为空")
     try:
@@ -68,11 +75,11 @@ def recommend_from_text(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/reports/from-text", response_class=HTMLResponse)
-def report_from_text(request: Request, payload: dict, db: Session = Depends(get_db)):
+def report_from_text(request: Request, payload: ReportPayload, db: Session = Depends(get_db)):
     """直接返回一份完整的 HTML 志愿填报报告。"""
-    text = payload.get("text", "").strip()
-    rank = payload.get("rank")
-    province = payload.get("province", "").strip() or None
+    text = payload.text.strip()
+    rank = payload.rank
+    province = (payload.province or "").strip() or None
     if not text:
         raise HTTPException(status_code=400, detail="描述文本不能为空")
     try:

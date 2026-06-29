@@ -84,7 +84,7 @@ export default function ProfileForm({ onSubmit, loading }) {
             placeholder="自由描述：科类、意向专业、意向城市、学校层次偏好、地域限制、是否接受特殊类型招生等。例如：物理类，想学计算机或电子信息，希望留在武汉或长三角，不想读预科/定向/采矿/护理。"
           />
           <p className="text-[11px] text-muted mt-2">
-            系统默认你服从专业组内调剂。 LLM 会自动从这段描述中解析你的科类、专业意向、城市偏好等。
+            LLM 会自动从这段描述中解析你的科类、专业意向、城市偏好等。
           </p>
         </div>
       </div>

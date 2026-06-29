@@ -420,6 +420,13 @@ def import_hubei_csv(
                 # 兼容：group_code 不带前导零
                 desc_key2 = (raw_code, str(int(group_code)) if group_code.isdigit() else group_code, major_code, subject_type)
                 description = desc_map.get(desc_key2)
+            # 合并 CSV 中的专业备注（含中外合作办学/国家专项/民族班等标记）
+            csv_note = str(row.get("专业备注", "")).strip()
+            if csv_note and csv_note.lower() not in ("nan", "none", ""):
+                if description:
+                    description = f"{csv_note}\n{description}"
+                else:
+                    description = csv_note
             major = Major(
                 school_id=school.id,
                 code=major_code,
@@ -472,6 +479,10 @@ def import_hubei_csv(
 
             if year == 2025:
                 source = "湖北省教育考试院2025年本科普通批院校专业组投档线（PDF）"
+                # 追加组级别备注（国家专项/民族班/中外合作等），用于特殊类型识别
+                note_2025 = str(row.get("专业组备注_2025", "")).strip()
+                if note_2025 and note_2025.lower() not in ("nan", "none", ""):
+                    source = f"{source} | {note_2025}"
             elif major_r is not None:
                 source = f"湖北{year}年本科普通批专业录取数据"
             else:

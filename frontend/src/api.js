@@ -5,6 +5,9 @@ const API = axios.create({
   timeout: 30000,
 })
 
+// Report generation needs longer timeout (backend LLM processing takes ~100s)
+const REPORT_TIMEOUT = 180000
+
 export const getHealth = () => API.get('/health')
 export const getSystemInfo = () => API.get('/system/info')
 
@@ -19,6 +22,6 @@ export const getSchool = (id) => API.get(`/schools/${id}`)
 export const searchMajors = (q, category) => API.get('/majors/search', { params: { q, category } })
 
 export const generateReport = (text, rank, province) =>
-  API.post('/reports/from-text', { text, rank, province }, { responseType: 'text' }).then((res) => res.data)
+  API.post('/reports/from-text', { text, rank, province }, { responseType: 'text', timeout: REPORT_TIMEOUT }).then((res) => res.data)
 
 export default API
