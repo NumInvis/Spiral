@@ -12,12 +12,10 @@ set "SPIRAL_SKIP_RAG_SEED=1"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
-cd /d "%~dp0"
-
 cls
-echo ==========================================
-echo   Spiral Gaokao Agent - One-click Start
-echo ==========================================
+echo =========================================
+echo   Spiral Gaokao Agent - All Services
+echo =========================================
 echo.
 
 if not exist "%PYTHON%" (
@@ -55,10 +53,7 @@ timeout /t 2 /nobreak >nul
 echo [OK] Cleanup done.
 echo.
 
-set "WINCODE_API_KEY=%WINCODE_API_KEY%"
-set "SPIRAL_SKIP_RAG_SEED=%SPIRAL_SKIP_RAG_SEED%"
-
-echo [1/3] Starting backend...
+echo [INFO] Starting Backend...
 cd /d "%BACKEND_DIR%"
 
 start "Spiral Backend" /MIN "%PYTHON%" -m uvicorn main:app --host 0.0.0.0 --port %BACKEND_PORT% --log-level info ^
@@ -81,7 +76,7 @@ exit /b 1
 :backend_ok
 echo [OK] Backend running at http://127.0.0.1:%BACKEND_PORT%
 
-echo [2/3] Starting frontend...
+echo [INFO] Starting Frontend...
 cd /d "%FRONTEND_DIR%"
 
 if not exist "node_modules" (
@@ -112,11 +107,11 @@ exit /b 1
 
 :frontend_ok
 echo [OK] Frontend running at http://127.0.0.1:%FRONTEND_PORT%
-
 echo.
-echo ==========================================
+
+echo =========================================
 echo   All services are running!
-echo ==========================================
+echo =========================================
 echo.
 echo   Backend API: http://127.0.0.1:%BACKEND_PORT%
 echo   API Docs:    http://127.0.0.1:%BACKEND_PORT%/docs
@@ -124,8 +119,8 @@ echo   Frontend:    http://127.0.0.1:%FRONTEND_PORT%
 echo.
 echo   Logs: %LOG_DIR%
 echo.
-echo   Press any key to stop all services...
-echo ==========================================
+echo   Press any key to STOP ALL services...
+echo =========================================
 pause >nul
 
 echo [INFO] Shutting down...

@@ -5,7 +5,6 @@ state, and returns it.  The orchestrator in core.py calls them in order and
 records every step in the trace.
 """
 
-import json
 import os
 import traceback
 from typing import Any, Dict
@@ -14,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from agent.state import AgentState, AgentStep
 from services.profile_parser import parse_free_text
-from services.llm_service import chat_completion
 from recommendation import build_recommendation
 from models import Profile
 
@@ -141,81 +139,4 @@ def risk_check_tool(state: AgentState, db: Session) -> AgentState:
     step.status = "done"
     step.output_summary = f"候选池数据置信分布 {conf_dist}"
     step.details = {"confidence_distribution": conf_dist}
-    return state
-
-
-def generate_rationale_tool(state: AgentState, db: Session) -> AgentState:
-    """Let the LLM act as the decision maker: review the candidate pool and generate final rationale."""
-    _require_llm()
-    if not state.selected:
-        return state
-
-    step = _add_step(
-        state,
-        "Agent 决策：生成最终志愿表",
-        input_summary=f"候选池 {len(state.selected)} 组，位次={state.profile.rank}",
-    )
-
-    profile = state.profile
-    # Limit candidates to avoid huge request body
-    MAX_RATIONALE_CANDIDATES = 10
-    selected_for_llm = state.selected[:MAX_RATIONALE_CANDIDATES]
-    candidates = [
-        {
-            "idx": i,
-            "level": g.level,
-            "school": g.school_name,
-            "group_code": g.group_code,
-            "probability": g.probability,
-            "majors": [m["name"] for m in g.majors[:3]],
-        }
-        for i, g in enumerate(selected_for_llm)
-    ]
-
-    system_prompt = (
-        "你是高考志愿填报最终决策者。从候选池中选择并排序最终志愿表，返回严格 JSON。\n"
-        "要求：\n"
-        "1. 最终志愿不超过 45 个组\n"
-        "2. 结合考生位次、意向专业、风险偏好排序\n"
-        "3. 输出格式：{\"selected_indices\": [0, 5, ...], \"reasoning\": \"决策逻辑\"}\n"
-        "4. selected_indices 必须在候选池范围内，不重复\n"
-        "5. 只输出 JSON，不要任何其他文本"
-    )
-
-    user_prompt = (
-        f"考生：{profile.province} {profile.subject_type} 位次{profile.rank} "
-        f"意向：{profile.preferred_major or '无'} 风险偏好：{profile.risk_preference}\n"
-        f"候选池（共 {len(candidates)} 个）：\n"
-        + json.dumps(candidates, ensure_ascii=False)
-        + "\n请输出最终志愿表的 selected_indices 和 reasoning。"
-    )
-
-    raw = chat_completion(
-        [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-        temperature=0.3,
-        max_tokens=2048,
-        timeout=300.0,
-    )
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`").strip()
-        if raw.lower().startswith("json"):
-            raw = raw[4:].strip()
-    decision = json.loads(raw)
-    indices = decision.get("selected_indices", [])
-    valid = [i for i in indices if isinstance(i, int) and 0 <= i < len(state.selected)]
-    if not valid:
-        raise RuntimeError("Agent 未返回有效志愿索引")
-    reordered = [state.selected[i] for i in valid]
-    for idx, item in enumerate(reordered, start=1):
-        item.group_index = idx
-    state.selected = reordered
-    state.groups_count = len(reordered)
-
-    step.status = "done"
-    step.output_summary = f"Agent 选定 {len(reordered)} 个专业组"
-    step.details = {
-        "selected_count": len(reordered),
-        "reasoning": decision.get("reasoning", ""),
-    }
     return state

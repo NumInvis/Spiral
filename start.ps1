@@ -3,7 +3,15 @@
 
 $ErrorActionPreference = "Stop"
 
-$backend = Start-Process -FilePath "python" -ArgumentList "main.py" -WorkingDirectory "$PSScriptRoot\backend" -PassThru -NoNewWindow
+$BackendDir = Join-Path $PSScriptRoot "backend"
+$Python = Join-Path $BackendDir "venv\Scripts\python.exe"
+if (-not (Test-Path $Python)) {
+    Write-Host "[ERROR] backend venv not found: $Python" -ForegroundColor Red
+    Write-Host "        Run: cd backend; python -m venv venv; .\venv\Scripts\python.exe -m pip install -r requirements.txt" -ForegroundColor Yellow
+    exit 1
+}
+
+$backend = Start-Process -FilePath $Python -ArgumentList "main.py" -WorkingDirectory $BackendDir -PassThru -NoNewWindow
 
 # npm 是 cmd 脚本，需要用 cmd /c 启动
 $frontend = Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory "$PSScriptRoot\frontend" -PassThru -NoNewWindow

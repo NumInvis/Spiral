@@ -65,7 +65,7 @@ def health():
 def system_info():
     return SystemInfo(
         version="0.2.0",
-        backend_port=1670,
+        backend_port=11678,
         province_rules={p["province"]: get_province_rule(p["province"]) for p in list_provinces()},
     )
 

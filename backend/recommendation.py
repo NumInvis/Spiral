@@ -324,6 +324,31 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             f"无法生成推荐。请确认数据已导入，或配置 web 数据获取。"
         )
 
+    # 预加载上一年的同省同科类组线，用于跨年等位分换算与 year_breakdown
+    prev_year = target_year - 1
+    prev_scores = (
+        db.query(MajorScore)
+        .join(Major)
+        .join(School)
+        .filter(
+            MajorScore.province == province,
+            MajorScore.subject_type == subject_type,
+            MajorScore.year == prev_year,
+            MajorScore.group_lowest_rank.isnot(None),
+        )
+        .all()
+    )
+    # 按 (school_id, group_code) 索引上一年组线（取该组任意专业的组线，同组应一致）
+    prev_group_index: Dict[Tuple[int, str], MajorScore] = {}
+    for ms in prev_scores:
+        gc = ms.group_code or ms.major.group_code or "01"
+        key = (ms.major.school_id, gc)
+        if key not in prev_group_index:
+            prev_group_index[key] = ms
+
+    # 构建一分一段表缓存，供等位分换算使用
+    rank_cache = _build_rank_cache(db, province, subject_type)
+
     # 按最新年份的组代码聚合专业，分为普通类和特殊类
     group_map: Dict[Tuple[int, str], Dict] = {}          # 普通类
     special_group_map: Dict[Tuple[int, str], Dict] = {}  # 特殊类
@@ -360,6 +385,34 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         # 构建通用专业条目
         relevance = major_relevance_score(major.name, profile.preferred_major)
         prob = estimate_probability(profile.rank, ms.group_lowest_rank)
+
+        # 跨年等位分换算：把上一年组线位次换算到目标年份等效位次
+        year_breakdown = [{"year": ms.year, "rank": ms.group_lowest_rank, "score": ms.group_lowest_score, "confidence": ms.data_confidence}]
+        prev_rank_eq: Optional[int] = None
+        prev_key = (school.id, gc)
+        prev_ms = prev_group_index.get(prev_key)
+        if prev_ms and prev_ms.group_lowest_rank is not None:
+            year_breakdown.append({
+                "year": prev_ms.year,
+                "rank": prev_ms.group_lowest_rank,
+                "score": prev_ms.group_lowest_score,
+                "confidence": prev_ms.data_confidence,
+            })
+            # 尝试把上一年位次换算到目标年份等效位次
+            try:
+                prev_rank_eq = rank_to_equivalent(
+                    prev_ms.group_lowest_rank, prev_year, target_year,
+                    province, subject_type, rank_cache=rank_cache,
+                )
+            except ValueError:
+                prev_rank_eq = None
+
+        # 若跨年换算成功，用两年位次均值修正概率（更稳健）
+        if prev_rank_eq is not None:
+            ref_ranks = [ms.group_lowest_rank, prev_rank_eq]
+            avg_ref_rank = sum(ref_ranks) / len(ref_ranks)
+            prob = estimate_probability(profile.rank, int(avg_ref_rank))
+
         major_item = {
             "major": major,
             "probability": prob,
@@ -368,7 +421,7 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             "data_confidence": ms.data_confidence,
             "source": ms.data_source or "",
             "relevance": relevance,
-            "year_breakdown": [{"year": ms.year, "rank": ms.group_lowest_rank, "score": ms.group_lowest_score, "confidence": ms.data_confidence}],
+            "year_breakdown": year_breakdown,
             "special_type": special_type,  # 新增：类型标记
         }
 

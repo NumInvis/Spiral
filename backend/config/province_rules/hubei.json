@@ -1,0 +1,81 @@
+{
+  "province": "湖北",
+  "province_code": "42",
+  "enabled": true,
+  "max_groups": 45,
+  "max_majors_per_group": 6,
+  "batch_types": {
+    "description": "湖北新高考本科批次划分，特殊类型与普通类严格区分",
+    "普通类": ["本科普通批"],
+    "特殊类": {
+      "国家专项计划": {
+        "description": "面向集中连片特殊困难县、国家级扶贫开发重点县招生",
+        "资格条件": "具有实施区域当地连续3年以上户籍和当地高中连续3年学籍并实际就读",
+        "default_visible": false,
+        "keywords": ["国家专项", "国家专项计划"]
+      },
+      "地方专项计划": {
+        "description": "面向各省（区、市）实施区域的农村学生",
+        "资格条件": "具有实施区域当地户籍和当地高中连续3年学籍并实际就读",
+        "default_visible": false,
+        "keywords": ["地方专项", "地方专项计划"]
+      },
+      "高校专项计划": {
+        "description": "面向边远、贫困、民族等地区县及县以下高中勤奋好学、成绩优良的农村学生",
+        "资格条件": "需提前报名并通过高校审核",
+        "default_visible": false,
+        "keywords": ["高校专项"]
+      },
+      "少数民族预科班": {
+        "description": "面向少数民族考生，预科一年合格后升入本科",
+        "default_visible": false,
+        "keywords": ["预科", "少数民族预科班"]
+      },
+      "民族班": {
+        "description": "面向少数民族考生，本科四年学制",
+        "default_visible": false,
+        "keywords": ["民族班"]
+      },
+      "定向招生": {
+        "description": "定向特定地区或行业就业",
+        "default_visible": false,
+        "keywords": ["定向"]
+      },
+      "中外合作办学": {
+        "description": "中方与外方合作举办的学历教育项目，学费通常较高",
+        "default_visible": false,
+        "keywords": ["中外合作", "中外合作办学"]
+      },
+      "护理类": {
+        "description": "护理学专业，通常在医学院或独立校区就读",
+        "default_visible": false,
+        "keywords": ["护理类", "护理学"]
+      },
+      "高收费/单列": {
+        "description": "高收费专业或单独列出的特殊培养项目",
+        "default_visible": false,
+        "keywords": ["高收费"]
+      },
+      "公费师范生": {
+        "description": "公费师范生项目，毕业后需到指定地区任教一定年限",
+        "default_visible": false,
+        "keywords": ["公费师范"]
+      },
+      "边防子女预科班": {
+        "description": "面向边防军人子女",
+        "default_visible": false,
+        "keywords": ["边防军人子女", "边防子女预科班"]
+      },
+      "国际班/海外分校": {
+        "description": "国际班项目或海外校区（如马来西亚分校）",
+        "default_visible": false,
+        "keywords": ["国际班", "马来西亚分校"]
+      }
+    }
+  },
+  "rules": {
+    "default_exclude_special_types": true,
+    "special_type_separate_section": true,
+    "special_type_requires_explicit_consent": true
+  }
+}

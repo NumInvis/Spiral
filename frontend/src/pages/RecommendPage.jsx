@@ -18,7 +18,7 @@ export default function RecommendPage() {
       setReportHtml(html)
     } catch (err) {
       console.error(err)
-      setError(err.response?.data?.detail || '生成报告失败，请检查后端服务是否启动（端口 1670）。')
+      setError(err.response?.data?.detail || '生成报告失败，请检查后端服务是否启动（端口 11678）。')
     } finally {
       setLoading(false)
     }

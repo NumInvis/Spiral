@@ -20,6 +20,7 @@ build/
 .tmp_data/
 qdrant_storage/
 backend/seed_cache/
+.vite/
 
 # Node
 node_modules/
@@ -28,9 +29,19 @@ frontend/dist/
 # Env / logs
 .env
 *.log
+*.err
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/
+
+# Reference projects (third-party clones for study, not part of Spiral)
+reference/
+
+# Reports / runtime artifacts (regenerated on demand)
+report_*.html
+test_page.html
+*.jpg
 
 # IDE
 .vscode/

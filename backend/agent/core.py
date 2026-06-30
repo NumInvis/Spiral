@@ -12,7 +12,6 @@ from agent.tools import (
     parse_profile_tool,
     retrieve_candidates_tool,
     risk_check_tool,
-    generate_rationale_tool,
 )
 
 
@@ -23,9 +22,12 @@ class RecommendationAgent:
         self.state = AgentState(original_text=text, rank=rank)
 
     def run(self, db: Session) -> AgentState:
-        """Execute the full pipeline and return the final state."""
+        """Execute the full pipeline and return the final state.
+
+        LLM 仅负责画像解析（parse_profile_tool）；候选检索、分档、排序全部由
+        规则引擎完成，避免 LLM 重排破坏冲稳保结构（曾导致全冲 bug）。
+        """
         parse_profile_tool(self.state, db)
         retrieve_candidates_tool(self.state, db)
         risk_check_tool(self.state, db)
-        generate_rationale_tool(self.state, db)
         return self.state
