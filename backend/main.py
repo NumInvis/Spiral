@@ -64,7 +64,7 @@ def health():
 @app.get("/api/system/info", response_model=SystemInfo)
 def system_info():
     return SystemInfo(
-        version="0.2.0",
+        version="0.2.1",
         backend_port=11678,
         province_rules={p["province"]: get_province_rule(p["province"]) for p in list_provinces()},
     )
@@ -116,14 +116,11 @@ def recommend(profile_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/schools", response_model=List[SchoolOut])
 def list_schools(
-    province: Optional[str] = Query(None),
     level: Optional[str] = Query(None),
     city: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     q = db.query(School)
-    if province:
-        q = q.filter(School.province == province)
     if level:
         q = q.filter(School.level == level)
     if city:

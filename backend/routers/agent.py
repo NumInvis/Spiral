@@ -1,14 +1,56 @@
+import asyncio
+import concurrent.futures
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from database import get_db
+from database import get_db, SessionLocal
 from models import School, Major, MajorScore
 from services import SearchAgent
 from config.province_rules import LATEST_HISTORICAL_YEAR
+from agent_loop import run_agent
+
+
+_router_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="agent")
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+
+class AgentRequest(BaseModel):
+    text: str
+    rank: Optional[int] = None
+    province: Optional[str] = None
+
+
+def _run_agent_thread(text: str, rank: Optional[int], province: Optional[str]) -> dict:
+    """Run agent in a dedicated thread with its own DB session."""
+    db = SessionLocal()
+    try:
+        state = run_agent(text=text, db=db, rank=rank, province=province)
+        return {
+            "profile": state.profile,
+            "recommendations": state.selected,
+            "warnings": state.warnings,
+            "trace": [t.__dict__ for t in state.trace],
+            "iterations": len(state.trace),
+        }
+    finally:
+        db.close()
+
+
+@router.post("/recommend")
+async def agent_recommend(req: AgentRequest):
+    """ReAct Agent 全流程推荐：LLM 全程决策，调用工具查询数据库。"""
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        _router_executor,
+        _run_agent_thread,
+        req.text,
+        req.rank,
+        req.province,
+    )
+    return result
 
 
 class FillDataRequest(BaseModel):
@@ -58,7 +100,6 @@ def fill_data_and_write(req: FillDataRequest, db: Session = Depends(get_db), age
         .first()
     )
     if not major:
-        # 若专业不存在则自动创建一个占位专业
         major = Major(
             school_id=school.id,
             name=req.major_name,
@@ -88,7 +129,7 @@ def fill_data_and_write(req: FillDataRequest, db: Session = Depends(get_db), age
             MajorScore(
                 major_id=major.id,
                 province=req.province,
-                subject_type=req.subject_type,
+                subject_type= req.subject_type,
                 year=req.year,
                 lowest_score=best.get("score"),
                 lowest_rank=best.get("rank"),
@@ -102,8 +143,7 @@ def fill_data_and_write(req: FillDataRequest, db: Session = Depends(get_db), age
 
 @router.post("/bulk-fill")
 def bulk_fill(req: BulkFillRequest, db: Session = Depends(get_db), agent: SearchAgent = Depends(_get_agent)):
-    """批量补录缺失位次的专业（优先 985/211 以下院校）。"""
-    # 找出该省份科类下没有最新历史年份位次数据的专业
+    """批量补录缺失位次的专业。"""
     subq = (
         db.query(MajorScore.major_id)
         .filter(

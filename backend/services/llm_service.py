@@ -27,9 +27,11 @@ def chat_completion(
     temperature: float = 0.3,
     max_tokens: int = 1024,
     timeout: float = 60.0,
-) -> str:
+    tools: Optional[List[dict]] = None,
+) -> dict:
     """
-    Send a chat request and return the assistant's text content.
+    Send a chat request and return the full message dict.
+    Returns {"content": str, "tool_calls": [{"id": str, "function": {"name": str, "arguments": str}}]}
     没有配置 API key 时直接报错，不允许降级。
     """
     api_key = _get_api_key()
@@ -47,6 +49,8 @@ def chat_completion(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if tools:
+        payload["tools"] = tools
 
     # Use httpx with explicit timeout: 30s connect, 300s read (LLM can be slow)
     t = httpx.Timeout(connect=30.0, read=timeout, write=30.0, pool=30.0)
@@ -54,7 +58,12 @@ def chat_completion(
         response = client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        msg = data["choices"][0]["message"]
+        result = {
+            "content": (msg.get("content") or "").strip(),
+            "tool_calls": msg.get("tool_calls", []),
+        }
+        return result
 
 
 def parse_profile_with_llm(text: str, rank: Optional[int] = None) -> Dict:
@@ -86,7 +95,8 @@ def parse_profile_with_llm(text: str, rank: Optional[int] = None) -> Dict:
         {"role": "user", "content": user_content},
     ]
 
-    raw = chat_completion(messages, temperature=0.2, max_tokens=512)
+    resp = chat_completion(messages, temperature=0.2, max_tokens=512)
+    raw = resp["content"]
     # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.strip("`").strip()
@@ -135,11 +145,12 @@ def evaluate_major_match_with_llm(major_name: str, preferred_majors: Optional[Li
         "请输出 JSON。"
     )
     try:
-        raw = chat_completion(
+        resp = chat_completion(
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             temperature=0.2,
             max_tokens=128,
         )
+        raw = resp["content"]
         if raw.startswith("```"):
             raw = raw.strip("`").strip()
             if raw.lower().startswith("json"):
@@ -166,8 +177,9 @@ def generate_report_summary(profile: Dict, result: Dict) -> str:
         f"冲 {result.get('冲_count', 0)} / 稳 {result.get('稳_count', 0)} / 保 {result.get('保_count', 0)}。\n"
         f"风险提示：{'; '.join(result.get('warnings', [])) if result.get('warnings') else '无'}"
     )
-    return chat_completion(
+    resp = chat_completion(
         [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
         temperature=0.5,
         max_tokens=256,
     )
+    return resp["content"]

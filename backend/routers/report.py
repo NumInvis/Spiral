@@ -1,4 +1,6 @@
 import os
+import asyncio
+import concurrent.futures
 from typing import Optional, List, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -6,9 +8,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from database import get_db
-from agent.core import RecommendationAgent
-from services.profile_parser import explain_parsing
+from database import get_db, SessionLocal
+from agent_loop import run_agent, AgentState
+
+
+_report_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="report")
 
 
 class ReportPayload(BaseModel):
@@ -24,27 +28,37 @@ os.makedirs(TEMPLATE_DIR, exist_ok=True)
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 
-def _build_report_data(text: str, rank: Optional[int], db: Session, province: Optional[str] = None):
-    """Shared pipeline: parse -> recommend -> agent rationale."""
-    agent = RecommendationAgent(text=text, rank=rank)
-    state = agent.run(db)
-    profile = state.profile
-    result = {
-        "profile": profile,
-        "total_groups": state.groups_count,
-        "冲_count": sum(1 for g in state.selected if g.level == "冲"),
-        "稳_count": sum(1 for g in state.selected if g.level == "稳"),
-        "保_count": sum(1 for g in state.selected if g.level == "保"),
-        "recommendations": state.selected,
-        "warnings": state.warnings,
-    }
-    explanations = explain_parsing(profile, text)
-    return profile, result, explanations, state.trace
+def _build_explanations(state: AgentState) -> List[Dict]:
+    """Build human-readable explanations from agent trace."""
+    explanations = []
+    if state.profile:
+        p = state.profile
+        if p.get("province"):
+            explanations.append({"item": "省份", "value": p["province"], "reason": "从描述中识别"})
+        if p.get("subject_type"):
+            explanations.append({"item": "科类", "value": p["subject_type"], "reason": "从描述中识别"})
+        if p.get("rank"):
+            explanations.append({"item": "位次", "value": str(p["rank"]), "reason": "用户提供或从文本提取"})
+        if p.get("preferred_major"):
+            explanations.append({"item": "意向专业", "value": p["preferred_major"], "reason": "LLM 解析"})
+        if p.get("risk_preference"):
+            explanations.append({"item": "风险偏好", "value": p["risk_preference"], "reason": "LLM 判断"})
+    explanations.append({"item": "推荐组数", "value": str(len(state.selected)), "reason": f"Agent 经过 {len(state.trace)} 轮推理生成"})
+    return explanations
+
+
+def _run_agent_sync(text: str, rank: Optional[int], province: Optional[str]) -> AgentState:
+    """Run agent in a thread with its own DB session."""
+    db = SessionLocal()
+    try:
+        return run_agent(text=text, db=db, rank=rank, province=province)
+    finally:
+        db.close()
 
 
 @router.post("/recommendations/from-text")
-def recommend_from_text(payload: ReportPayload, db: Session = Depends(get_db)):
-    """自由文本入口：返回 Agent 推荐结果与 trace。"""
+async def recommend_from_text(payload: ReportPayload):
+    """自由文本入口：ReAct Agent 推荐结果与 trace。"""
     text = payload.text.strip()
     rank = payload.rank
     province = (payload.province or "").strip() or None
@@ -55,27 +69,29 @@ def recommend_from_text(payload: ReportPayload, db: Session = Depends(get_db)):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="rank 必须是整数")
 
+    loop = asyncio.get_event_loop()
     try:
-        profile, result, explanations, trace = _build_report_data(text, rank, db, province=province)
+        state = await loop.run_in_executor(_report_executor, _run_agent_sync, text, rank, province)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
     return {
-        "profile": profile,
-        "total_groups": result["total_groups"],
-        "冲_count": result["冲_count"],
-        "稳_count": result["稳_count"],
-        "保_count": result["保_count"],
-        "recommendations": [g.model_dump() for g in result["recommendations"]],
-        "warnings": result["warnings"],
-        "trace": [t.__dict__ for t in trace],
+        "profile": state.profile,
+        "total_groups": len(state.selected),
+        "冲_count": sum(1 for g in state.selected if g.get("level") == "冲"),
+        "稳_count": sum(1 for g in state.selected if g.get("level") == "稳"),
+        "保_count": sum(1 for g in state.selected if g.get("level") == "保"),
+        "recommendations": state.selected,
+        "warnings": state.warnings,
+        "trace": [t.__dict__ for t in state.trace],
+        "iterations": len(state.trace),
     }
 
 
 @router.post("/reports/from-text", response_class=HTMLResponse)
-def report_from_text(request: Request, payload: ReportPayload, db: Session = Depends(get_db)):
+async def report_from_text(request: Request, payload: ReportPayload):
     """直接返回一份完整的 HTML 志愿填报报告。"""
     text = payload.text.strip()
     rank = payload.rank
@@ -87,20 +103,24 @@ def report_from_text(request: Request, payload: ReportPayload, db: Session = Dep
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="rank 必须是整数")
 
+    loop = asyncio.get_event_loop()
     try:
-        profile, result, explanations, trace = _build_report_data(text, rank, db, province=province)
+        state = await loop.run_in_executor(_report_executor, _run_agent_sync, text, rank, province)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    explanations = _build_explanations(state)
     template_result = {
-        "total_groups": result["total_groups"],
-        "冲_count": result["冲_count"],
-        "稳_count": result["稳_count"],
-        "保_count": result["保_count"],
-        "warnings": result["warnings"],
-        "recommendations": [g.model_dump() for g in result["recommendations"]],
+        "total_groups": len(state.selected),
+        "冲_count": sum(1 for g in state.selected if g.get("level") == "冲"),
+        "稳_count": sum(1 for g in state.selected if g.get("level") == "稳"),
+        "保_count": sum(1 for g in state.selected if g.get("level") == "保"),
+        "warnings": state.warnings,
+        "recommendations": state.selected,
+        "special_recommendations": [],
+        "special_by_type": {},
     }
 
     return templates.TemplateResponse(
@@ -108,10 +128,10 @@ def report_from_text(request: Request, payload: ReportPayload, db: Session = Dep
         {
             "request": request,
             "text": text,
-            "profile": profile,
+            "profile": state.profile or {},
             "explanations": explanations,
             "result": template_result,
             "summary": "",
-            "trace": [t.__dict__ for t in trace],
+            "trace": [t.__dict__ for t in state.trace],
         },
     )
