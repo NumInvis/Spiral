@@ -9,12 +9,12 @@ export default function RecommendPage() {
   const [error, setError] = useState(null)
   const iframeRef = useRef(null)
 
-  const handleSubmit = async ({ text, rank, province }) => {
+  const handleSubmit = async ({ text, rank, province, subject_type }) => {
     setLoading(true)
     setError(null)
     setReportHtml(null)
     try {
-      const html = await generateReport(text, rank, province)
+      const html = await generateReport(text, rank, province, subject_type)
       setReportHtml(html)
     } catch (err) {
       console.error(err)

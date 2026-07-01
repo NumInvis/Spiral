@@ -15,6 +15,7 @@ class Profile(Base):
     rank = Column(Integer, nullable=False)
     preferred_major = Column(String(200), nullable=True)
     preferred_city = Column(String(200), nullable=True)
+    excluded_majors = Column(String(200), nullable=True)
     strategy = Column(String(50), nullable=True, default=None)
     risk_preference = Column(String(20), nullable=True, default="balanced")
     accept_adjustment = Column(Boolean, default=True)

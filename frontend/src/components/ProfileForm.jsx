@@ -13,6 +13,7 @@ const PROVINCES = [
 export default function ProfileForm({ onSubmit, loading }) {
   const [form, setForm] = useState({
     province: '湖北',
+    subject_type: '物理',
     rank: '',
     requirements: '',
   })
@@ -27,9 +28,10 @@ export default function ProfileForm({ onSubmit, loading }) {
     const rank = parseInt(form.rank, 10)
     if (!rank || rank <= 0) return
 
-    const text = `我是${form.province}考生，位次${rank}。${form.requirements}`
+    const text = `我是${form.province}考生，${form.subject_type}类，位次${rank}。${form.requirements}`
     onSubmit({
       province: form.province,
+      subject_type: form.subject_type,
       rank,
       text,
     })
@@ -38,7 +40,7 @@ export default function ProfileForm({ onSubmit, loading }) {
   return (
     <form onSubmit={handleSubmit} className="brutal-card-accent p-6 md:p-8">
       <div className="space-y-6">
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-3 gap-6">
           <div>
             <label className="block font-bold text-sm mb-2">省份</label>
             <select
@@ -50,6 +52,21 @@ export default function ProfileForm({ onSubmit, loading }) {
               {PROVINCES.map((p) => (
                 <option key={p} value={p}>{p}</option>
               ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold text-sm mb-2">
+              科类 <span className="text-burgundy">*</span>
+            </label>
+            <select
+              name="subject_type"
+              value={form.subject_type}
+              onChange={handleChange}
+              className="brutal-select w-full"
+            >
+              <option value="物理">物理</option>
+              <option value="历史">历史</option>
             </select>
           </div>
 
@@ -81,10 +98,10 @@ export default function ProfileForm({ onSubmit, loading }) {
             rows={6}
             required
             className="brutal-input"
-            placeholder="自由描述：科类、意向专业、意向城市、学校层次偏好、地域限制、是否接受特殊类型招生等。例如：物理类，想学计算机或电子信息，希望留在武汉或长三角，不想读预科/定向/采矿/护理。"
+            placeholder="自由描述：意向专业、意向城市、学校层次偏好、地域限制、是否接受特殊类型招生等。例如：想学计算机或电子信息，希望留在武汉或长三角，不想读预科/定向/采矿/护理。"
           />
           <p className="text-[11px] text-muted mt-2">
-            LLM 会自动从这段描述中解析你的科类、专业意向、城市偏好等。
+            科类已单独选择，这里只需描述你的专业意向、城市偏好、排除项等。
           </p>
         </div>
       </div>

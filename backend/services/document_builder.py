@@ -9,7 +9,7 @@
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 
-from models import School, Major, MajorScore, AdmissionPlan
+from models import School, Major, MajorScore
 from config.province_rules import PROVINCE_RULES, CURRENT_YEAR
 
 

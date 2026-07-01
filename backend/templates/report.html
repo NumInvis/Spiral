@@ -406,37 +406,6 @@
       color: var(--warn);
     }
 
-    /* Methodology */
-    .method-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    .method-list li {
-      border: 2px solid var(--ink);
-      padding: 18px 20px;
-      margin-bottom: 12px;
-      background: var(--paper);
-      counter-increment: method;
-      position: relative;
-      padding-left: 64px;
-    }
-
-    .method-list li::before {
-      content: counter(method, decimal-leading-zero);
-      position: absolute;
-      left: 18px;
-      top: 14px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--accent);
-    }
-
-    .method-list h4 { font-size: 18px; margin-bottom: 6px; }
-    .method-list p { margin: 0; color: var(--muted); font-size: 14px; }
-
     /* Footer */
     .footer {
       border-top: 3px solid var(--ink);
@@ -481,7 +450,7 @@
     <section class="cover">
       <div class="cover-badge">Spiral Report · 变分无限</div>
       <h1>高考志愿<br/>填报报告</h1>
-      <p class="cover-subtitle">基于自然语言描述与全省位次，由 Spiral Agent 生成可解释、可核验、带风险提示的 45 志愿方案。</p>
+      <p class="cover-subtitle">基于自然语言描述与全省位次，由 Spiral Agent 生成可解释、可核验、带风险提示的 15 志愿方案（5 冲 / 5 稳 / 5 保）。</p>
       <div class="cover-meta">
         <div class="cover-meta-item">
           <div class="cover-meta-label">省份</div>
@@ -532,17 +501,17 @@
         <div class="stat-box stat-chong">
           <div class="stat-number">{{ result.冲_count }}</div>
           <div class="stat-label">冲</div>
-          <div class="stat-hint">概率 10%–40%</div>
+          <div class="stat-hint">位次 50%–90%</div>
         </div>
         <div class="stat-box stat-wen">
           <div class="stat-number">{{ result.稳_count }}</div>
           <div class="stat-label">稳</div>
-          <div class="stat-hint">概率 40%–75%</div>
+          <div class="stat-hint">位次 90%–110%</div>
         </div>
         <div class="stat-box stat-bao">
           <div class="stat-number">{{ result.保_count }}</div>
           <div class="stat-label">保</div>
-          <div class="stat-hint">概率 75%+</div>
+          <div class="stat-hint">位次 110%–130%</div>
         </div>
       </div>
 
@@ -569,10 +538,6 @@
           <div id="chart-level" class="chart"></div>
         </div>
         <div class="chart-box">
-          <div class="chart-title">录取概率区间</div>
-          <div id="chart-prob" class="chart"></div>
-        </div>
-        <div class="chart-box">
           <div class="chart-title">院校层次分布</div>
           <div id="chart-levels" class="chart"></div>
         </div>
@@ -586,7 +551,7 @@
     <!-- Detailed Table -->
     <section class="card">
       <div class="card-subtitle">Section 03 · 尾</div>
-      <h2 class="card-title">45 志愿院校专业组详表</h2>
+      <h2 class="card-title">15 志愿院校专业组详表</h2>
 
       <div class="table-wrap">
         <table>
@@ -598,7 +563,6 @@
               <th>专业组代码</th>
               <th>2024 最低位次</th>
               <th>2025 最低位次</th>
-              <th>录取概率</th>
               <th>详情</th>
             </tr>
           </thead>
@@ -622,13 +586,12 @@
                 {% set r2025 = item.year_breakdown | selectattr('year','equalto',2025) | map(attribute='rank') | first %}
                 {{ "{:,}".format(r2025) if r2025 else '—' }}
               </td>
-              <td class="probability">{{ (item.probability * 100) | int }}%</td>
               <td style="font-size:12px;">
                 <div style="max-width:260px;">{{ item.reason }}</div>
               </td>
             </tr>
             <tr class="detail-row">
-              <td colspan="8">
+              <td colspan="7">
                 {% if item.risk_notes %}
                 <div class="risk-box" style="margin-bottom:12px;">
                   <strong>风险提示：</strong>{{ item.risk_notes | join('；') }}
@@ -677,7 +640,6 @@
                 <th style="width:50px;">分档</th>
                 <th>院校</th>
                 <th>专业组</th>
-                <th>概率</th>
                 <th>详情</th>
               </tr>
             </thead>
@@ -693,7 +655,6 @@
                   <div class="school-meta">{{ item.school_code }} · {{ item.city or '—' }}</div>
                 </td>
                 <td class="mono">{{ item.group_code }}</td>
-                <td class="probability">{{ (item.probability * 100) | int }}%</td>
                 <td style="font-size:12px;">
                   <div style="max-width:260px;">{{ item.reason }}</div>
                 </td>
@@ -706,38 +667,6 @@
       {% endfor %}
     </section>
     {% endif %}
-
-    <!-- Methodology -->
-    <section class="card">
-      <div class="card-subtitle">附录</div>
-      <h2 class="card-title">中间过程优化说明</h2>
-      <ol class="method-list">
-        <li>
-          <h4>自由文本画像解析</h4>
-          <p>由 LLM 从自然语言中提取省份、科类、位次、意向城市与专业；缺少关键信息时直接报错，不预设默认值。系统默认考生服从专业组内调剂。</p>
-        </li>
-        <li>
-          <h4>专业组代码与组内专业说明</h4>
-          <p>每一行推荐中的专业组代码（如 A16707）对应院校的一个专业组。代码后的描述（如"含电气工程、自动化等方向"）直接来自该组内最相关的专业名称，帮助用户快速判断这个组是什么项目。详情可展开查看组内全部专业。</p>
-        </li>
-        <li>
-          <h4>官方投档线为准</h4>
-          <p>2025 年推荐完全基于湖北省教育考试院官方 PDF 投档线表与一分一段表；2024/2023/2022 年数据来自开源整理的官方投档/录取数据。不自行估算专业热度或捏造专业线。</p>
-        </li>
-        <li>
-          <h4>冲稳保分档</h4>
-          <p>以考生位次与官方院校专业组投档位次的差距估算录取概率，结合考生风险偏好划分冲/稳/保。保档上限不超过考生位次×130%，避免志愿过度浪费。</p>
-        </li>
-        <li>
-          <h4>智能排序（数据筛选 + 层次加权 + LLM 决策）</h4>
-          <p>同档次内先按"学校层次（985/211/双一流）+ 专业匹配度 + 录取概率"综合排序。若配置了 LLM API key，则由 LLM 对候选池进行最终排序，生成自然语言推荐理由和风险提示；未配置时回退到规则排序。</p>
-        </li>
-        <li>
-          <h4>数据置信度</h4>
-          <p>2024 年真实专业录取线标 A，专业组投档线标 B；2025 年仅公布院校专业组投档线，统一标 C。所有置信标签随原始数据传播到推荐结果。</p>
-        </li>
-      </ol>
-    </section>
 
     <!-- Footer -->
     <footer class="footer">
@@ -752,6 +681,7 @@
   </div>
 
   <script>
+    const recs = {{ result.recommendations | tojson }};
     const levelData = [
       { value: {{ result.冲_count }}, name: '冲' },
       { value: {{ result.稳_count }}, name: '稳' },
@@ -772,36 +702,6 @@
         itemStyle: { borderColor: '#1A1A1A', borderWidth: 2 },
         label: { show: false },
         data: levelData
-      }]
-    });
-
-    const recs = {{ result.recommendations | tojson }};
-    const buckets = [
-      { name: '20-35%', count: 0, level: '冲' },
-      { name: '35-50%', count: 0, level: '冲' },
-      { name: '50-65%', count: 0, level: '稳' },
-      { name: '65-85%', count: 0, level: '稳' },
-      { name: '85-95%', count: 0, level: '保' },
-      { name: '95%+', count: 0, level: '保' }
-    ];
-    recs.forEach(r => {
-      const p = r.probability * 100;
-      if (p < 35) buckets[0].count++;
-      else if (p < 50) buckets[1].count++;
-      else if (p < 65) buckets[2].count++;
-      else if (p < 85) buckets[3].count++;
-      else if (p < 95) buckets[4].count++;
-      else buckets[5].count++;
-    });
-
-    echarts.init(document.getElementById('chart-prob')).setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'category', data: buckets.map(b => b.name), axisLine: { lineStyle: { color: '#1A1A1A', width: 2 } } },
-      yAxis: { type: 'value', axisLine: { lineStyle: { color: '#1A1A1A', width: 2 } }, splitLine: { lineStyle: { type: 'dashed' } } },
-      series: [{
-        type: 'bar',
-        data: buckets.map(b => ({ value: b.count, itemStyle: { color: colorMap[b.level], borderColor: '#1A1A1A', borderWidth: 2 } }))
       }]
     });
 

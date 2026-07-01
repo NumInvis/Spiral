@@ -87,7 +87,7 @@ set /a attempts=0
 :loop_frontend
 set /a attempts+=1
 timeout /t 1 /nobreak >nul
-powershell -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%FRONTEND_PORT%/' -TimeoutSec 2; exit 0 } catch { exit 1 }"
+powershell -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%FRONTEND_PORT%/' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }"
 if %errorlevel%==0 goto frontend_ok
 if %attempts% geq 20 goto frontend_fail
 goto loop_frontend

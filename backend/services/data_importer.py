@@ -288,47 +288,6 @@ def import_ranking_csv(
     return {"province": province, "subject_type": subject_type, "year": year, "rows": inserted}
 
 
-def score_to_rank(
-    db: Session,
-    province: str,
-    subject_type: str,
-    year: int,
-    score: int,
-) -> Optional[int]:
-    """根据一分一段表把分数换算为位次；无精确匹配时线性插值。"""
-    row = db.query(RankTable).filter(
-        RankTable.province == province,
-        RankTable.subject_type == subject_type,
-        RankTable.year == year,
-        RankTable.score == score,
-    ).first()
-    if row and row.accumulate is not None:
-        return row.accumulate
-    # 插值：取相邻两个分数点
-    lower = db.query(RankTable).filter(
-        RankTable.province == province,
-        RankTable.subject_type == subject_type,
-        RankTable.year == year,
-        RankTable.score < score,
-    ).order_by(RankTable.score.desc()).first()
-    upper = db.query(RankTable).filter(
-        RankTable.province == province,
-        RankTable.subject_type == subject_type,
-        RankTable.year == year,
-        RankTable.score > score,
-    ).order_by(RankTable.score.asc()).first()
-    if lower and upper and lower.accumulate is not None and upper.accumulate is not None:
-        if lower.score == upper.score:
-            return lower.accumulate
-        ratio = (score - lower.score) / (upper.score - lower.score)
-        return int(lower.accumulate + ratio * (upper.accumulate - lower.accumulate))
-    if lower and lower.accumulate is not None:
-        return lower.accumulate
-    if upper and upper.accumulate is not None:
-        return upper.accumulate
-    return None
-
-
 def import_hubei_csv(
     db: Session,
     csv_path: Optional[str] = None,

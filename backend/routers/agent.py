@@ -1,56 +1,18 @@
-import asyncio
 import concurrent.futures
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from database import get_db, SessionLocal
+from database import get_db
 from models import School, Major, MajorScore
 from services import SearchAgent
 from config.province_rules import LATEST_HISTORICAL_YEAR
-from agent_loop import run_agent
 
 
 _router_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="agent")
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
-
-
-class AgentRequest(BaseModel):
-    text: str
-    rank: Optional[int] = None
-    province: Optional[str] = None
-
-
-def _run_agent_thread(text: str, rank: Optional[int], province: Optional[str]) -> dict:
-    """Run agent in a dedicated thread with its own DB session."""
-    db = SessionLocal()
-    try:
-        state = run_agent(text=text, db=db, rank=rank, province=province)
-        return {
-            "profile": state.profile,
-            "recommendations": state.selected,
-            "warnings": state.warnings,
-            "trace": [t.__dict__ for t in state.trace],
-            "iterations": len(state.trace),
-        }
-    finally:
-        db.close()
-
-
-@router.post("/recommend")
-async def agent_recommend(req: AgentRequest):
-    """ReAct Agent 全流程推荐：LLM 全程决策，调用工具查询数据库。"""
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        _router_executor,
-        _run_agent_thread,
-        req.text,
-        req.rank,
-        req.province,
-    )
-    return result
 
 
 class FillDataRequest(BaseModel):

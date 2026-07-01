@@ -149,17 +149,13 @@ Spiral/
 │   │   ├── agent.py               # Search Agent
 │   │   └── rag.py                 # RAG 检索
 │   ├── services/                  # 业务服务
-│   │   ├── profile_parser.py      # 自由文本画像解析
-│   │   ├── major_matcher.py       # LLM 语义专业匹配
-│   │   ├── llm_service.py         # LLM 客户端
+│   │   ├── major_matcher.py       # 纯规则专业匹配
+│   │   ├── llm_service.py         # LLM 客户端 + 质检复审
 │   │   ├── data_importer.py       # CSV / JSON 数据导入
 │   │   ├── rag_service.py         # Qdrant RAG
 │   │   ├── document_builder.py    # 招生章程文档生成
 │   │   └── search_agent.py        # 联网搜索 Agent
-│   ├── agent/                     # LLM Agent 核心
-│   │   ├── core.py
-│   │   ├── tools.py
-│   │   └── state.py
+│   ├── agent_loop.py               # 2轮 LLM 主流程（轮1主体决策 + 轮2质检复审）
 │   ├── scripts/                   # 数据工具脚本
 │   ├── templates/report.html      # HTML 报告模板
 │   ├── data/                      # CSV/JSON 数据源

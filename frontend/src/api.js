@@ -21,7 +21,7 @@ export const listSchools = (params) => API.get('/schools', { params })
 export const getSchool = (id) => API.get(`/schools/${id}`)
 export const searchMajors = (q, category) => API.get('/majors/search', { params: { q, category } })
 
-export const generateReport = (text, rank, province) =>
-  API.post('/reports/from-text', { text, rank, province }, { responseType: 'text', timeout: REPORT_TIMEOUT }).then((res) => res.data)
+export const generateReport = (text, rank, province, subjectType) =>
+  API.post('/reports/from-text', { text, rank, province, subject_type: subjectType }, { responseType: 'text', timeout: REPORT_TIMEOUT }).then((res) => res.data)
 
 export default API

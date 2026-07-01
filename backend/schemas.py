@@ -11,9 +11,8 @@ class ProfileCreate(BaseModel):
     rank: int = Field(..., ge=1)
     preferred_major: Optional[str] = None
     preferred_city: Optional[str] = None
-    strategy: Optional[str] = None
+    excluded_majors: Optional[str] = None
     risk_preference: str = Field(default="balanced", pattern="^(aggressive|balanced|conservative)$")
-    accept_adjustment: bool = True
     allow_special_types: bool = False
 
 
@@ -89,7 +88,6 @@ class SchoolDetailOut(SchoolOut):
 class RecommendationItem(BaseModel):
     group_index: int
     level: str  # 冲 / 稳 / 保
-    probability: float
     school_id: int
     school_code: str
     school_name: str
@@ -103,15 +101,6 @@ class RecommendationItem(BaseModel):
     data_confidence: str
 
 
-class AgentStep(BaseModel):
-    step: int
-    name: str
-    status: str  # running / done / error
-    input_summary: Optional[str] = None
-    output_summary: Optional[str] = None
-    details: Optional[dict] = None
-
-
 class RecommendationOut(BaseModel):
     profile: ProfileOut
     total_groups: int
@@ -122,11 +111,6 @@ class RecommendationOut(BaseModel):
     special_recommendations: List[RecommendationItem] = []
     special_by_type: dict = {}
     warnings: List[str]
-    llm_message: str = ""
-
-
-class AgentRecommendationOut(RecommendationOut):
-    trace: List[AgentStep] = []
 
 
 class ProvinceRuleOut(BaseModel):

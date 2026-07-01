@@ -1,11 +1,10 @@
 import re
 from typing import List, Dict, Optional, Tuple
-from sqlalchemy import and_
-from sqlalchemy.orm import Session, selectinload, with_loader_criteria
+from sqlalchemy.orm import Session, selectinload
 
 from config import get_province_rule, default_rule
-from config.province_rules import CURRENT_YEAR, LATEST_HISTORICAL_YEAR
-from models import Profile, School, Major, MajorScore, AdmissionPlan, RankTable
+from config.province_rules import LATEST_HISTORICAL_YEAR
+from models import Profile, School, Major, MajorScore, RankTable
 from schemas import RecommendationItem
 
 try:
@@ -14,50 +13,10 @@ except Exception:
     build_major_intent = None
     score_major_relevance = None
 
-# LLM 决策层导入（必须配置，禁止回退）
-try:
-    from services.llm_service import chat_completion
-    LLM_AVAILABLE = True
-except Exception:
-    chat_completion = None
-    LLM_AVAILABLE = False
-
-
-# ---------------------------------------------------------------------------
-# 静态数据内存缓存
-# ---------------------------------------------------------------------------
-_schools_cache: Dict[Tuple[str, str], List[School]] = {}
-
-
-def _load_schools_cached(db: Session, province: str, subject_type: str) -> List[School]:
-    """加载学校与专业元数据（分数线不再通过此缓存读取）。"""
-    global _schools_cache
-    key = (province, subject_type)
-    if key not in _schools_cache:
-        schools = (
-            db.query(School)
-            .options(
-                selectinload(School.majors).selectinload(Major.scores),
-                with_loader_criteria(
-                    MajorScore,
-                    and_(MajorScore.province == province, MajorScore.subject_type == subject_type),
-                ),
-                selectinload(School.majors).selectinload(Major.plans),
-                with_loader_criteria(
-                    AdmissionPlan,
-                    and_(AdmissionPlan.province == province, AdmissionPlan.subject_type == subject_type),
-                ),
-            )
-            .all()
-        )
-        db.expunge_all()
-        _schools_cache[key] = schools
-    return _schools_cache[key]
-
 
 def clear_schools_cache() -> None:
-    global _schools_cache
-    _schools_cache = {}
+    """兼容旧调用（seed_data.py 引用），缓存已移除，此处为空操作。"""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -151,19 +110,6 @@ def rank_to_equivalent(
 
 
 # ---------------------------------------------------------------------------
-# 录取概率：仅基于考生位次与官方投档位次，不使用计划数等不可靠数据
-# ---------------------------------------------------------------------------
-def estimate_probability(candidate_rank: int, ref_rank: int, plan_count: int = 0, trend: float = 0.0) -> float:
-    """基于位次差距估算录取概率；计划数与趋势参数保留签名但不再参与计算。"""
-    if ref_rank <= 0:
-        return 0.5
-    rank_ratio = candidate_rank / ref_rank
-    # ratio < 1 表示考生位次更靠前，概率更高
-    prob = 1.0 / (1.0 + max(0, rank_ratio - 0.85) * 4.0)
-    return max(0.02, min(0.99, prob))
-
-
-# ---------------------------------------------------------------------------
 # 专业语义匹配（LLM 扩展 + 本地打分）
 # ---------------------------------------------------------------------------
 _intent_cache: Dict[str, Dict] = {}
@@ -242,12 +188,6 @@ _SPECIAL_TYPE_CATEGORIES = {
     },
 }
 
-# 兼容旧代码的扁平关键词列表
-_SPECIAL_TYPE_KEYWORDS = [
-    kw for cat in _SPECIAL_TYPE_CATEGORIES.values() for kw in cat["keywords"]
-]
-
-
 def classify_special_type(major_name: str, notes: Optional[str]) -> Optional[str]:
     """
     将专业归类为特定特殊类型。
@@ -258,11 +198,6 @@ def classify_special_type(major_name: str, notes: Optional[str]) -> Optional[str
         if any(kw in text for kw in config["keywords"]):
             return type_name
     return None
-
-
-def is_special_type(major_name: str, notes: Optional[str]) -> bool:
-    text = f"{major_name or ''} {notes or ''}"
-    return any(kw in text for kw in _SPECIAL_TYPE_KEYWORDS)
 
 
 # ---------------------------------------------------------------------------
@@ -382,9 +317,16 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         if not _subject_requirement_ok(subject_type, req, profile.preferred_major):
             continue
 
+        # 排除专业方向过滤（用户明确不想填报的，如土木/医学）
+        excluded = getattr(profile, "excluded_majors", None)
+        if excluded:
+            excluded_tokens = [t.strip() for t in re.split(r"[、,，；;|/]", excluded) if t.strip()]
+            if any(tok and tok in major.name for tok in excluded_tokens):
+                continue
+
         # 构建通用专业条目
         relevance = major_relevance_score(major.name, profile.preferred_major)
-        prob = estimate_probability(profile.rank, ms.group_lowest_rank)
+        ratio = ms.group_lowest_rank / profile.rank if profile.rank else 1.0
 
         # 跨年等位分换算：把上一年组线位次换算到目标年份等效位次
         year_breakdown = [{"year": ms.year, "rank": ms.group_lowest_rank, "score": ms.group_lowest_score, "confidence": ms.data_confidence}]
@@ -407,15 +349,14 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             except ValueError:
                 prev_rank_eq = None
 
-        # 若跨年换算成功，用两年位次均值修正概率（更稳健）
+        # 若跨年换算成功，用两年位次均值修正 ratio（更稳健）
         if prev_rank_eq is not None:
-            ref_ranks = [ms.group_lowest_rank, prev_rank_eq]
-            avg_ref_rank = sum(ref_ranks) / len(ref_ranks)
-            prob = estimate_probability(profile.rank, int(avg_ref_rank))
+            avg_ref_rank = (ms.group_lowest_rank + prev_rank_eq) / 2
+            ratio = avg_ref_rank / profile.rank if profile.rank else 1.0
 
         major_item = {
             "major": major,
-            "probability": prob,
+            "ratio": ratio,
             "ref_rank": ms.group_lowest_rank,
             "ref_score": ms.group_lowest_score,
             "data_confidence": ms.data_confidence,
@@ -449,7 +390,7 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
                 continue
             g["majors"].sort(key=lambda x: x["relevance"], reverse=True)
             top = g["majors"][:max_majors]
-            group_prob = min(i["probability"] for i in top)
+            group_ratio = min(i["ratio"] for i in top)
             groups.append({
                 "school": g["school"],
                 "group_code": g["group_code"],
@@ -457,7 +398,7 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
                 "group_lowest_rank": g["group_lowest_rank"],
                 "group_lowest_score": g["group_lowest_score"],
                 "majors": top,
-                "group_prob": group_prob,
+                "group_ratio": group_ratio,
                 "confidence": "C",
                 "avg_relevance": sum(i["relevance"] for i in top) / len(top),
                 "special_type": g.get("special_type"),
@@ -481,30 +422,36 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         return 0.0
 
     def _sort_key(g: Dict) -> float:
-        """综合排序：概率×10 + 专业相关度×5 + 学校层次权重。"""
-        return g["group_prob"] * 10 + g["avg_relevance"] * 5 + _school_level_weight(g["school"].level)
+        """综合排序：位次匹配度(ratio越接近1越好) + 专业相关度 + 学校层次权重。"""
+        # ratio 越接近 1，位次越匹配，得分越高
+        ratio_score = 1.0 - abs(1.0 - g["group_ratio"])
+        return ratio_score * 10 + g["avg_relevance"] * 5 + _school_level_weight(g["school"].level)
 
     def _partition_and_select(source: List[Dict], target_冲: int, target_稳: int, target_保: int) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+        """按位次比例分档：ratio = 组投档位次 / 考生位次。
+        冲: 学校明显强于考生；稳: 持平；保: 学校略弱于考生但不浪费。"""
         risk_pref = getattr(profile, "risk_preference", "balanced")
         if risk_pref == "aggressive":
-            冲_min, 冲_max = 0.05, 0.30
-            稳_min, 稳_max = 0.30, 0.60
-            保_min = 0.60
+            冲_ratio, 稳_ratio, 保_max = (0.40, 0.85, 1.40), (0.85, 1.05), 1.40
         elif risk_pref == "conservative":
-            冲_min, 冲_max = 0.20, 0.45
-            稳_min, 稳_max = 0.55, 0.85
-            保_min = 0.85
+            冲_ratio, 稳_ratio, 保_max = (0.60, 0.95, 1.30), (0.95, 1.20), 1.30
         else:
-            冲_min, 冲_max = 0.15, 0.45
-            稳_min, 稳_max = 0.45, 0.75
-            保_min = 0.75
+            冲_ratio, 稳_ratio, 保_max = (0.50, 0.90, 1.30), (0.90, 1.10), 1.30
 
-        # 保档上限：不超过当前排名×130%，防止过度保守导致志愿浪费
-        max_bao_rank = profile.rank * 1.3
-
-        冲 = [g for g in source if 冲_min <= g["group_prob"] < 冲_max]
-        稳 = [g for g in source if 稳_min <= g["group_prob"] < 稳_max]
-        保 = [g for g in source if g["group_prob"] >= 保_min and g["group_lowest_rank"] <= max_bao_rank]
+        rank = profile.rank
+        冲, 稳, 保 = [], [], []
+        for g in source:
+            ref = g["group_lowest_rank"]
+            if not ref or ref <= 0:
+                continue
+            ratio = ref / rank
+            if 冲_ratio[0] <= ratio < 冲_ratio[1]:
+                冲.append(g)
+            elif 稳_ratio[0] <= ratio < 稳_ratio[1]:
+                稳.append(g)
+            elif 稳_ratio[1] <= ratio <= 保_max:
+                保.append(g)
+            # 超出 [冲_ratio[0], 保_max] 的组直接丢弃（太高不可攀或太低浪费）
 
         冲.sort(key=_sort_key, reverse=True)
         稳.sort(key=_sort_key, reverse=True)
@@ -528,93 +475,12 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         selected_保 = _select_diverse(保, target_保)
         return selected_冲, selected_稳, selected_保
 
-    selected_冲, selected_稳, selected_保 = _partition_and_select(normal_groups, 10, 25, 10)
+    selected_冲, selected_稳, selected_保 = _partition_and_select(normal_groups, 5, 5, 5)
     ordered = selected_冲 + selected_稳 + selected_保
 
     # 特殊类也按冲稳保分档，但数量更少
-    special_冲, special_稳, special_保 = _partition_and_select(special_groups, 3, 8, 3)
+    special_冲, special_稳, special_保 = _partition_and_select(special_groups, 2, 2, 2)
     special_ordered = special_冲 + special_稳 + special_保
-
-    # ---------------------------------------------------------------------------
-    # LLM 决策层：对候选池进行智能排序和推荐理由生成
-    # 禁止回退：LLM 未配置时直接报错，不可静默降级到规则排序
-    # ---------------------------------------------------------------------------
-    def _llm_decision_layer(
-        candidates: List[Dict],
-        profile: Profile,
-    ) -> Tuple[List[Dict], str]:
-        """
-        调用 LLM 对候选池进行最终排序和推荐理由生成。
-        禁止 fallback：LLM 不可用时必须显式报错，不可回退到规则排序。
-        """
-        if not LLM_AVAILABLE or chat_completion is None:
-            raise RuntimeError(
-                "LLM 决策层未激活：未配置 WINCODE_API_KEY 或 OPENAI_API_KEY。"
-                "请在 .env 文件中配置 API key 后重试。"
-            )
-
-        # 限制候选池大小，避免 LLM 处理超时
-        MAX_LLM_CANDIDATES = 5
-        llm_candidates = candidates[:MAX_LLM_CANDIDATES]
-
-        # 构建精简候选池描述
-        candidate_lines = []
-        for idx, g in enumerate(llm_candidates, start=1):
-            top_majors = [m["major"].name for m in g["majors"][:2]]
-            candidate_lines.append(
-                f"{idx}. {g['school'].name} {g['group_code']} | "
-                f"位次{g['group_lowest_rank']} | 概率{int(g['group_prob']*100)}% | "
-                f"专业：{', '.join(top_majors)}"
-            )
-
-        system_prompt = (
-            "你是高考志愿填报专家。请根据考生画像和候选池，对候选院校专业组进行排序并给出推荐理由。"
-            "输出严格的 JSON 数组，每个元素包含：group_code(专业组代码), reason(1句推荐理由), level(冲/稳/保)。"
-            "排序顺序即为推荐顺序。不要输出任何 JSON 之外的文本。"
-        )
-
-        user_prompt = (
-            f"考生：{profile.province} {profile.subject_type} 位次{profile.rank} "
-            f"意向：{profile.preferred_major or '无'}\n"
-            f"候选池：\n" + "\n".join(candidate_lines)
-        )
-
-        raw = chat_completion(
-            [{"role": "system", "content": system_prompt},
-             {"role": "user", "content": user_prompt}],
-            temperature=0.3,
-            max_tokens=4096,
-            timeout=300.0,
-        )
-
-        if raw.startswith("```"):
-            raw = raw.strip("`").strip()
-            if raw.lower().startswith("json"):
-                raw = raw[4:].strip()
-
-        import json
-        llm_result = json.loads(raw)
-
-        # 按 LLM 返回的顺序重新排序候选池
-        code_to_reason = {}
-        for item in llm_result:
-            code_to_reason[item["group_code"]] = item
-
-        reordered = []
-        for g in candidates:
-            if g["group_code"] in code_to_reason:
-                g["llm_reason"] = code_to_reason[g["group_code"]].get("reason", "")
-                g["llm_risk_notes"] = code_to_reason[g["group_code"]].get("risk_notes", [])
-                g["llm_level"] = code_to_reason[g["group_code"]].get("level", "")
-                reordered.append(g)
-            else:
-                # LLM 未覆盖的组：放在末尾，不标注 llm_reason（后续报错）
-                reordered.append(g)
-
-        return reordered, "LLM 已完成候选池排序和推荐理由生成"
-
-    # 对普通类候选池调用 LLM 决策层
-    ordered, llm_msg = _llm_decision_layer(ordered, profile)
 
     def _build_recommendation_items(source: List[Dict]) -> List[RecommendationItem]:
         items = []
@@ -635,7 +501,6 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
                     "name": m.name,
                     "category": m.category,
                     "discipline_eval": m.discipline_eval,
-                    "probability": round(item["probability"], 2),
                     "ref_rank": item["ref_rank"],
                     "ref_score": item["ref_score"],
                     "data_confidence": item["data_confidence"],
@@ -652,31 +517,21 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
             top_major_names = [m["name"] for m in majors_out if m.get("relevance", 0) >= 0.5][:3]
             group_major_desc = "、".join(top_major_names) if top_major_names else "多方向专业组"
 
-            # LLM 决策层：优先使用 LLM 生成的推荐理由
-            if g.get("llm_reason"):
-                reason = g["llm_reason"]
-                risk_notes = g.get("llm_risk_notes", [])
-            else:
-                # LLM 未覆盖的组（如候选池超出 LLM 处理范围），使用规则生成但不标注来源
-                reason_parts = [
-                    f"{school.name}第{gc_group}专业组（{gc}），含{group_major_desc}等方向",
-                    f"{LATEST_HISTORICAL_YEAR}年官方投档位次 {g['majors'][0]['ref_rank']}",
-                    f"考生位次 {profile.rank}",
-                    f"组录取概率约 {round(g['group_prob'] * 100)}%",
-                ]
-                if g.get("special_type"):
-                    reason_parts.append(f"类型：{g['special_type']}")
-                if school.city:
-                    reason_parts.append(f"位于{school.city}")
-                reason = "；".join(reason_parts)
-                risk_notes = []
-
-            # 不再标注决策来源，全部由 LLM 或数据驱动
+            reason_parts = [
+                f"{school.name}第{gc_group}专业组（{gc}），含{group_major_desc}等方向",
+                f"{LATEST_HISTORICAL_YEAR}年官方投档位次 {g['majors'][0]['ref_rank']}",
+                f"考生位次 {profile.rank}",
+            ]
+            if g.get("special_type"):
+                reason_parts.append(f"类型：{g['special_type']}")
+            if school.city:
+                reason_parts.append(f"位于{school.city}")
+            reason = "；".join(reason_parts)
+            risk_notes = []
 
             items.append(RecommendationItem(
                 group_index=idx,
                 level=level,
-                probability=round(g["group_prob"], 2),
                 school_id=school.id,
                 school_code=school.code,
                 school_name=school.name,
@@ -718,5 +573,4 @@ def build_recommendation(profile: Profile, db: Session) -> Dict:
         "special_recommendations": special_recommendations,
         "special_by_type": special_by_type,
         "warnings": warnings,
-        "llm_message": llm_msg,
     }

@@ -8,8 +8,6 @@ _RULES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "province_
 CURRENT_YEAR = 2026
 # 已有完整录取数据的最新年份（2026 年录取尚未结束，因此最新为 2025）
 LATEST_HISTORICAL_YEAR = 2025
-# 推荐系统默认读取的招生计划年份
-DEFAULT_PLAN_YEAR = CURRENT_YEAR
 
 
 def _load_rules() -> Dict[str, Dict]:

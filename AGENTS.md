@@ -55,16 +55,17 @@ cd frontend & npm install & npm run dev
 
 | 路径 | 职责 |
 |------|------|
-| `backend/agent/` | LLM Agent 编排：core=流程，tools=原子操作，state=数据模型 |
+| `backend/agent_loop.py` | 2轮 LLM 主流程：轮1主体决策（候选+原文→15条排序+理由），轮2质检复审（在 report.py 调用） |
+| `backend/recommendation.py` | DB 预过滤+分档：5冲(50-90%)/5稳(90-110%)/5保(110-130%)，特殊类型过滤、排除专业、跨年 year_breakdown |
 | `backend/routers/` | API 路由：report, agent, rag |
-| `backend/services/` | 业务逻辑：profile_parser, major_matcher, llm_service, data_importer, rag_service, search_agent 等 |
-| `backend/scripts/` | 一次性数据工具（audit, sync, generate_report, validate_csv） |
+| `backend/services/` | 业务逻辑：major_matcher(纯规则匹配), llm_service(chat+review), data_importer, rag_service, search_agent 等 |
+| `backend/scripts/` | 一次性数据工具（audit_db, validate_csv） |
 
 ## 已知陷阱
 
-- `recommendation.py:46-55`：`_schools_cache` 使用 `db.expunge_all()` 后缓存在进程内存中，重启失效
-- `recommendation.py:617`：`_llm_decision_layer()` 无降级，LLM 不可用则整个推荐接口 500
-- `agent/tools.py:33-36`：`_require_llm()` 直接读环境变量，不从 config 模块取
+- `recommendation.py:estimate_probability` 内部仍计算 prob 用于排序权重，但已从输出 schema 删除，不向用户暴露"录取概率"
+- `agent_loop._post_process` 强制按 ref_rank 排序（冲→稳→保，同档内位次升序），保证志愿表有效性
+- `routers/report.py` 轮2 major 路径会自建 SessionLocal 重跑轮1（带反馈意见）
 - 特殊类型关键词硬编码在 `recommendation.py:189-243` 的 `_SPECIAL_TYPE_CATEGORIES` 字典中
 - `start.bat` 使用 `%~dp0` 相对路径，不要改成绝对路径
 
