@@ -5,6 +5,7 @@ Defaults to the WinCode endpoint; reads API key from WINCODE_API_KEY env var.
 
 import os
 import json
+import re
 import time
 import httpx
 from typing import Dict, List, Optional
@@ -26,7 +27,7 @@ def _is_retryable(exc: Exception) -> bool:
     """Transient failures that are worth retrying."""
     if isinstance(exc, httpx.TimeoutException):
         return True
-    if isinstance(exc, httpx.ConnectError):
+    if isinstance(exc, (httpx.ConnectError, httpx.RemoteProtocolError, httpx.NetworkError, httpx.ProtocolError)):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in (429, 502, 503, 504)
@@ -90,90 +91,189 @@ def chat_completion(
     raise last_exc or RuntimeError("LLM 调用失败")
 
 
+def _extract_excluded_tokens(text: str) -> List[str]:
+    """从轻量规则提取排除专业关键词。"""
+    if not text:
+        return []
+    m = re.search(r"(?:不想|不要|不考虑|排除|避开|不喜欢)[：:，,]?\s*([^\s，,。.；;]+)", text)
+    if not m:
+        return []
+    raw = m.group(1)
+    return [t.strip() for t in re.split(r"[、,，；;|/]", raw) if t.strip()]
+
+
+def _rule_review(
+    profile: Dict,
+    recommendations: List[Dict],
+    original_text: str,
+) -> Dict:
+    """快速规则质检，返回 severity/issues/auto_fixable。"""
+    issues = []
+    minor_issues = []
+    level_order = {"冲": 0, "稳": 1, "保": 2}
+
+    # 结构检查
+    if len(recommendations) != 15:
+        issues.append(f"推荐条目数量应为15条，实际{len(recommendations)}条")
+
+    level_counts = {}
+    for r in recommendations:
+        level_counts[r.get("level", "")] = level_counts.get(r.get("level", ""), 0) + 1
+    for lv in ["冲", "稳", "保"]:
+        if level_counts.get(lv) != 5:
+            issues.append(f"{lv}档应为5条，实际{level_counts.get(lv, 0)}条")
+
+    # 位次排序检查
+    by_level = {}
+    for r in recommendations:
+        by_level.setdefault(r.get("level", ""), []).append(r)
+    for lv in ["冲", "稳", "保"]:
+        ranks = [r.get("ref_rank") or 0 for r in by_level.get(lv, [])]
+        if ranks and ranks != sorted(ranks):
+            minor_issues.append(f"{lv}档位次未严格按升序排列")
+
+    # 全局顺序检查：冲→稳→保
+    levels = [r.get("level", "") for r in recommendations]
+    expected_order = ["冲"] * 5 + ["稳"] * 5 + ["保"] * 5
+    if levels != expected_order:
+        issues.append("志愿表整体顺序不是冲→稳→保")
+
+    # 排除项检查
+    excluded = _extract_excluded_tokens(original_text)
+    if profile.get("excluded_majors"):
+        excluded += [t for t in re.split(r"[、,，；;|/]", profile["excluded_majors"]) if t.strip()]
+    excluded = list(set(excluded))
+    for r in recommendations:
+        check_text = f"{r.get('school_name', '')} {r.get('group_code', '')} "
+        majors = r.get("majors", [])
+        if isinstance(majors, list):
+            check_text += " ".join(str(m.get("name", "")) if isinstance(m, dict) else str(m) for m in majors)
+        for tok in excluded:
+            if tok and tok in check_text:
+                issues.append(f"{r.get('school_name')} {r.get('group_code')} 包含排除项：{tok}")
+
+    # 推荐理由长度检查
+    short_reasons = 0
+    for r in recommendations:
+        reason = r.get("reason", "")
+        if not reason or len(reason.strip()) < 15:
+            short_reasons += 1
+    if short_reasons:
+        minor_issues.append(f"有{short_reasons}条推荐理由过短（<15字）")
+
+    severity = "ok"
+    if issues:
+        severity = "major"
+    elif minor_issues:
+        severity = "minor"
+
+    return {
+        "severity": severity,
+        "issues": issues + minor_issues,
+        "major_issues": issues,
+        "minor_issues": minor_issues,
+    }
+
+
+def _auto_fix_recommendations(recommendations: List[Dict]) -> List[Dict]:
+    """对轻微问题进行本地修正（排序、截断过长理由等）。"""
+    level_order = {"冲": 0, "稳": 1, "保": 2}
+    sorted_recs = sorted(
+        recommendations,
+        key=lambda r: (level_order.get(r.get("level", ""), 3), r.get("ref_rank") or 0),
+    )
+    for r in sorted_recs:
+        reason = r.get("reason", "")
+        if reason and len(reason) > 200:
+            r["reason"] = reason[:197] + "..."
+    # 重新编号
+    for i, r in enumerate(sorted_recs, 1):
+        r["group_index"] = i
+    return sorted_recs
+
+
 def review_and_summarize(
     profile: Dict,
     recommendations: List[Dict],
     original_text: str,
     candidate_pool: List[Dict] = None,
 ) -> Dict:
-    """轮2: LLM 独立质检。有自己的学校/专业/未来判断。
-    轻微问题自行微调交付；严重不符回退让轮1重跑。
+    """轮2 质检：先规则快速检查，再调用轻量 LLM 做独立判断。
+    ok / minor 尽量不二次生成 recommendations；major 返回 issues 供轮1重跑。
 
-    candidate_pool: DB预筛选的完整候选池（供轮2替换时取用），结构同 recommendations 元素。
     返回: {
-        "severity": "ok|minor|major",  # ok=直接交付, minor=已微调交付, major=回退轮1
-        "recommendations": [...],       # 微调后的15条（minor时与输入可能不同）
-        "summary": "...",               # 整体评价
-        "issues": [...],                # 发现的问题
+        "severity": "ok|minor|major",
+        "recommendations": [...],
+        "summary": "...",
+        "issues": [...],
         "confidence": "high/medium/low"
     }
     """
     import json as _json
 
-    # 轮1输出概要
+    # 1) 规则质检
+    rule = _rule_review(profile, recommendations, original_text)
+
+    # 规则完全通过且无明显问题：跳过 LLM 复审，直接使用轮1 的 summary
+    if rule["severity"] == "ok" and not rule["issues"]:
+        return {
+            "severity": "ok",
+            "recommendations": recommendations,
+            "summary": "",
+            "issues": [],
+            "confidence": "high",
+        }
+
+    # major 直接返回问题，由 report.py 回退轮1重跑
+    if rule["severity"] == "major":
+        return {
+            "severity": "major",
+            "recommendations": recommendations,
+            "summary": "规则质检发现严重问题，需回退轮1修正。",
+            "issues": rule["issues"],
+            "confidence": "low",
+        }
+
+    # 2) 轻量 LLM 独立复审（只输出 severity/summary/issues，不重新生成15条）
     rec_brief = []
     for r in recommendations:
+        majors = r.get("majors", [])
+        major_names = ", ".join(
+            m.get("name", "") if isinstance(m, dict) else str(m) for m in majors[:3]
+        )
         rec_brief.append(
             f"- [{r.get('level')}] {r.get('school_name')}({r.get('school_level') or '未知'}) "
-            f"{r.get('group_code')} | 组位次{r.get('ref_rank','?')} | "
-            f"理由：{r.get('reason','')}"
+            f"{r.get('group_code')} | 位次{r.get('ref_rank','?')} | 专业:{major_names}"
         )
-
-    # 备选候选池（供轮2替换用）
-    pool_brief = []
-    if candidate_pool:
-        for r in candidate_pool:
-            pool_brief.append(
-                f"- [{r.get('level')}] {r.get('school_name')}({r.get('school_level') or '未知'}) "
-                f"{r.get('group_code')} | 组位次{r.get('ref_rank','?')}"
-            )
 
     prompt = f"""考生原始诉求：{original_text}
 
-轮1 LLM 已输出的15条志愿方案：
+轮1 LLM 已输出的志愿方案：
 {chr(10).join(rec_brief)}
 
-备选候选池（你可从中替换，仅在严重不符时使用）：
-{chr(10).join(pool_brief) if pool_brief else '无'}
+你是高考志愿填报复审专家，有自己独立的判断。请只做严格质检，不要输出新的 recommendations 数组。
 
-你是高考志愿填报复审专家，有自己独立的判断。请对这份方案做严格质检：
-
-## 你的独立判断维度
-- 学校实力：985/211/双一流/普通本科的层次是否被合理利用
-- 学科前景：专业是否有发展潜力、是否夕阳产业、是否与国家战略契合
-- 就业导向：该校该专业的就业去向、行业薪资、地域产业匹配
-- 位次排序：志愿表必须按位次从高到低排序（冲→稳→保），同档内也按位次降序。位次低的排在位次高的前面=志愿表作废，必须修正
-- 诉求相符：是否违反考生明确排除项（医学/土木等）
-
-## 质检结果分级（重要：能自己改就不要回退）
-- ok：方案合理，直接交付
-- minor：有1-2条需要微调（替换专业组、修正理由、调整顺序、修正位次排序），你自行修改后交付
-- major：严重不符（多条违反排除项、结构坍塌、名校误判、位次排序混乱且无法局部修正），必须回退轮1重跑
-
-## 你的权力
-- minor 时你可以直接修改 recommendations 数组（替换条目、调整 reason、重排序修正位次），但必须保持5冲5稳5保共15条
-- major 时不要修改 recommendations，只标注 issues 让系统回退轮1
+质检维度：
+1. 是否违反考生明确排除项（医学/土木/定向/预科等）
+2. 层次利用是否合理（985/211/双一流是否被充分利用）
+3. 位次排序是否按冲→稳→保、同档内位次从高到低
+4. 专业方向是否与考生意向（理工/电工科）匹配
+5. 推荐理由是否有独立判断而非套话
 
 输出严格 JSON：
-```json
 {{
   "severity": "ok/minor/major",
-  "recommendations": [
-    {{"level":"冲/稳/保","school_name":"...","school_code":"...","city":"...","group_code":"...","ref_rank":0,"majors":[{{"name":"...","relevance":0.0}}],"reason":"30-100字理由","data_confidence":"C","year_breakdown":[{{"year":2025,"rank":0,"score":0,"confidence":"C"}}]}}
-  ],
   "summary": "2-3句整体评价，体现你的独立判断",
-  "issues": ["发现的问题（无则空数组）"],
-  "confidence": "high/medium/low"
+  "issues": ["发现的问题（无则空数组）"]
 }}
-```
-severity=ok 时 recommendations 可原样返回；severity=major 时 recommendations 原样返回不修改。
+severity=ok 表示无需修改；severity=minor 表示有1-2处可本地微调；severity=major 表示必须回退轮1重跑。
 只输出 JSON。"""
 
     resp = chat_completion(
         [{"role": "user", "content": prompt}],
         temperature=0.3,
-        max_tokens=4096,
-        timeout=180.0,
+        max_tokens=1024,
+        timeout=90.0,
     )
     raw = resp["content"]
     if raw.startswith("```"):
@@ -181,12 +281,37 @@ severity=ok 时 recommendations 可原样返回；severity=major 时 recommendat
         if raw.lower().startswith("json"):
             raw = raw[4:].strip()
     try:
-        return _json.loads(raw)
+        review = _json.loads(raw)
     except Exception:
+        review = {"severity": "ok", "summary": raw or "复审LLM返回非JSON，已原样交付。", "issues": ["复审LLM返回非JSON，已原样交付"]}
+
+    severity = review.get("severity", "ok")
+    summary = review.get("summary", "")
+    issues = review.get("issues", [])
+
+    # 合并 LLM 发现的问题与规则问题
+    all_issues = list(dict.fromkeys(rule["issues"] + issues))
+
+    if severity == "major" or all_issues:
+        # 只要 LLM 或规则认为有严重/轻微问题，统一交给 report.py 处理
+        effective_severity = "major" if severity == "major" else ("minor" if all_issues else "ok")
+    else:
+        effective_severity = "ok"
+
+    if effective_severity == "minor":
+        fixed = _auto_fix_recommendations(recommendations)
         return {
-            "severity": "ok",
-            "recommendations": recommendations,
-            "summary": raw,
-            "issues": ["复审LLM返回非JSON，已原样交付"],
-            "confidence": "low",
+            "severity": "minor",
+            "recommendations": fixed,
+            "summary": summary or "已按规则自动微调并提交。",
+            "issues": all_issues,
+            "confidence": "medium",
         }
+
+    return {
+        "severity": "ok",
+        "recommendations": recommendations,
+        "summary": summary or "方案通过复审。",
+        "issues": all_issues,
+        "confidence": "high",
+    }

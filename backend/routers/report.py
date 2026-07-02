@@ -1,6 +1,8 @@
 import os
 import asyncio
 import concurrent.futures
+import logging
+import time
 from typing import Optional, List, Dict
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -9,6 +11,8 @@ from pydantic import BaseModel
 
 from database import SessionLocal
 from agent_loop import run_agent, AgentState
+
+logger = logging.getLogger(__name__)
 
 
 _report_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="report")
@@ -87,7 +91,9 @@ async def report_from_text(request: Request, payload: ReportPayload):
 
     loop = asyncio.get_event_loop()
     try:
+        t0 = time.time()
         state = await loop.run_in_executor(_report_executor, _run_agent_sync, text, rank, province, subject_type)
+        print(f"[timing] run_agent took {time.time() - t0:.2f}s", flush=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -96,25 +102,33 @@ async def report_from_text(request: Request, payload: ReportPayload):
     explanations = _build_explanations(state)
 
     # 构造轮1候选池快照（供轮2替换取用）
+    def _pool_rank(r):
+        yb = getattr(r, "year_breakdown", None) or (r.get("year_breakdown") if isinstance(r, dict) else None) or []
+        if yb and isinstance(yb[0], dict):
+            return yb[0].get("rank", "?")
+        return getattr(r, "ref_rank", "?")
+
     candidate_pool_snapshot = [
         {
             "level": getattr(r, "level", r.get("level") if isinstance(r, dict) else ""),
             "school_name": getattr(r, "school_name", r.get("school_name") if isinstance(r, dict) else ""),
             "school_level": getattr(r, "school_level", r.get("school_level") if isinstance(r, dict) else ""),
             "group_code": getattr(r, "group_code", r.get("group_code") if isinstance(r, dict) else ""),
-            "ref_rank": (getattr(r, "year_breakdown", None) or ([{}] if not isinstance(r, dict) else r.get("year_breakdown", [{}]))),
+            "ref_rank": _pool_rank(r),
         }
         for r in (state.selected or [])
     ]
 
-    # 轮2: LLM 独立质检（轻微自改交付，严重带意见回退轮1）
+    # 轮2: 质检（规则+轻量LLM；严重问题回退轮1）
     summary = ""
     try:
         from services.llm_service import review_and_summarize
+        t1 = time.time()
         review = review_and_summarize(
             state.profile or {}, state.selected, state.original_text,
             candidate_pool=candidate_pool_snapshot,
         )
+        print(f"[timing] review_and_summarize took {time.time() - t1:.2f}s", flush=True)
         severity = review.get("severity", "ok")
 
         if severity == "major":
@@ -152,6 +166,10 @@ async def report_from_text(request: Request, payload: ReportPayload):
             state.warnings.extend(review["issues"])
     except Exception as e:
         summary = f"[复审生成失败：{e}]"
+
+    # 兜底：使用轮1自带的整体评价
+    if not summary and state.final_result:
+        summary = state.final_result.get("summary", "")
 
     template_result = {
         "total_groups": len(state.selected),

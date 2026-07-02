@@ -10,7 +10,9 @@ DB  — build_recommendation 预过滤+分档（特殊类型/排除专业/位次
 
 from __future__ import annotations
 import json
+import logging
 import re
+import time
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
@@ -20,6 +22,8 @@ from models import Profile, School, Major, MajorScore
 from config.province_rules import LATEST_HISTORICAL_YEAR
 from services.llm_service import chat_completion
 from recommendation import build_recommendation
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +119,10 @@ def run_agent(
         f"位次{profile_data.get('rank')}"
     )
 
+    t0 = time.time()
     rec_result = build_recommendation(profile_obj, db)
+    t1 = time.time()
+    print(f"[timing] build_recommendation took {t1 - t0:.2f}s", flush=True)
     scored = rec_result["recommendations"]
     collect_step.output_summary += (
         f" | 候选池: {len(scored)} 条 "
@@ -125,7 +132,10 @@ def run_agent(
 
     # ── 轮1: LLM 主体决策 ──────────────────────────────────────────────
     reasoning_step = _add_step(state, "轮1 LLM 主体决策", status="running")
+    t2 = time.time()
     final = _llm_final_reasoning(state, scored, profile_data)
+    t3 = time.time()
+    print(f"[timing] _llm_final_reasoning took {t3 - t2:.2f}s", flush=True)
 
     if final:
         state.final_result = final
@@ -298,7 +308,8 @@ def _llm_final_reasoning(
   "recommendations": [
     {{"level":"冲/稳/保","school_name":"...","school_code":"...","city":"...","group_code":"...","ref_rank":0,"majors":[{{"name":"...","relevance":0.0}}],"reason":"30-100字推荐理由，体现你的独立判断","data_confidence":"C","year_breakdown":[{{"year":2025,"rank":0,"score":0,"confidence":"C"}}]}}
   ],
-  "warnings":["针对该考生的风险提示，0-3条"]
+  "warnings":["针对该考生的风险提示，0-3条"],
+  "summary":"2-3句整体评价，体现你对该方案的独立判断"
 }}
 ```
 只输出 JSON。"""
@@ -306,8 +317,8 @@ def _llm_final_reasoning(
     result = chat_completion(
         [{"role": "user", "content": prompt}],
         temperature=0.3,
-        max_tokens=4096,
-        timeout=180.0,
+        max_tokens=3500,
+        timeout=240.0,
     )
     parsed = _parse_final_result(result["content"])
     if not parsed:

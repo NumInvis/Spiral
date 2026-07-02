@@ -5,8 +5,8 @@ const API = axios.create({
   timeout: 30000,
 })
 
-// Report generation needs longer timeout (backend LLM processing takes ~100s)
-const REPORT_TIMEOUT = 180000
+// Report generation needs longer timeout (backend LLM processing can be slow)
+const REPORT_TIMEOUT = 360000
 
 export const getHealth = () => API.get('/health')
 export const getSystemInfo = () => API.get('/system/info')
